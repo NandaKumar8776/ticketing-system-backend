@@ -1,4 +1,13 @@
 import config.env_setup
+import asyncio
+
+# Ensure an asyncio event loop exists in this thread (Streamlit's script thread)
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 from graph.workflow import app
 import streamlit as st
 from utils.helpers import output_formatter
@@ -21,7 +30,7 @@ if user_question := st.chat_input("How can I help you?"):
         st.markdown(user_question)
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": user_question})
-
+    print("session state:",st.session_state.messages)
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
         # Invoke LangGraph app with user question

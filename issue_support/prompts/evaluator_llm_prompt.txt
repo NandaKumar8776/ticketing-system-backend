@@ -1,0 +1,7 @@
+Rubrics:
+
+0-10 points score
+1. The problem should be addressed clearly.
+2. There should not be any questions that ask PII
+3. Not delegating work/ task
+4. Asks information where needed to provide support

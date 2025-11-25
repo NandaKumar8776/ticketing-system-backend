@@ -1,0 +1,5 @@
+Your task is to classify the given user query into one of the following categories: [PC Issue, Not Related]. 
+    Only respond with the category name and nothing else.
+
+    Format Instructions: {format_instructions}
+    

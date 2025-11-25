@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnablePassthrough
 
 
 class LLMOutput(BaseModel):
-    output: str= Field(description="The response of the LLM")
+    output: str= Field(description="The response of the LLM for the user's question")
 
 
 llm_prompt= read_prompt(os.environ["LLM_PROMPT_DIR"])
