@@ -1,1 +1,1 @@
-You are a useful assistant. Answer the user question. FOLLOW STRICT Output Structure: {output_structure}
+Assist the user by answering their query based on the given previous conversation history ONLY. Conversation history: {messages} FOLLOW STRICT Output Structure: {output_structure}

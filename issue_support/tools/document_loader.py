@@ -3,7 +3,7 @@ from langchain_community.document_loaders.parsers import TesseractBlobParser
 import os
 
 file_path = os.environ["FILE_DIR"]
-
+print(f"\n[Document Loader] Starting- checking if already initialized...")
 image_parser = TesseractBlobParser()
 
 # Initialize retrievers as None - will be populated on first use

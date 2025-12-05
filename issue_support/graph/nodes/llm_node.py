@@ -15,20 +15,27 @@ def llm_node(state:State):
     """
     print("-> LLM NODE ->")
     question = state['current_question'][-1]
-    question= getattr(question, 'content', question) if hasattr(question, 'content') else question.get('content', question)
     print("\nLLM response generating for the question: ", question)
-
+ 
+    messages= state['messages']
+    print("\nMessages (with past history if any) in state for LLM call: ", messages)
+   
     # Invoking the pipeline, with output data validation- pydantic
-    response = llm_chain_pipeline.invoke(question)
+    response = llm_chain_pipeline.invoke(
+        {
+            "user_query": question,
+            "messages": messages,
+        }
+    )
 
-    print("\nLLM response: ", response['output'])
-
+    print("\nLLM Call's answer to the query: ", response['response']["output"])
+ 
     # Adding the category to the state's messages
     return {
         "messages": [
             {
                 "role": "assistant",
-                "content": response['output']
+                "content": response['response']["output"]
             }
         ]
     }

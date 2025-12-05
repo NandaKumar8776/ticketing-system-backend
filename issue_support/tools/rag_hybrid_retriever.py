@@ -32,7 +32,7 @@ prompt = ChatPromptTemplate(
 ### Hybrid Search RAG Pipeline
 
 from langchain_core.runnables import RunnablePassthrough
-from utils.helpers import llm
+from utils.helpers import rag_llm
 
 # Importing both the BM25 and Vector Store retrievers - initialization is lazy loaded
 from tools.document_loader import initialize_retrievers, vector_store_retriever, BM25_retriever
@@ -50,10 +50,12 @@ def get_ensemble_retriever():
     if vector_store_retriever is None or BM25_retriever is None:
         raise RuntimeError("Retrievers could not be initialized. Check document loader configuration.")
     
-    return EnsembleRetriever(
-        retrievers=[BM25_retriever, vector_store_retriever],
-        weights=[0.3, 0.7]
-    )
+    retriever = EnsembleRetriever(
+                retrievers=[BM25_retriever, vector_store_retriever],
+                weights=[0.3, 0.7]
+                )
+    print("\n[rag_hybrid_retriever] Ensemble retriever created with BM25 and Vector Store retrievers.")
+    return retriever
 
 
 # Create ensemble retriever with only context
@@ -66,16 +68,20 @@ hybrid_search_rag_pipeline = (
     |
     prompt
     |
-    llm
+    rag_llm
     |
     parser
 )
 
+# Context from the router node is passed directly to the RAG pipeline now
 hybrid_search_rag_pipeline_with_context = (
-    {"context": RunnablePassthrough() | ensemble_retriever, "user_query": RunnablePassthrough(), "messages": RunnablePassthrough()}
+    {
+        "context": RunnablePassthrough(),
+        "user_query": RunnablePassthrough(),
+        "messages": RunnablePassthrough()
+    }
     | RunnablePassthrough.assign(
-        response=(
-            lambda x: (prompt | llm | parser).invoke(x)
-        )
+        response=lambda x: (prompt | rag_llm | parser).invoke(x)
     )
 )
+

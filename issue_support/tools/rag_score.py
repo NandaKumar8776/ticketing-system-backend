@@ -43,9 +43,37 @@ def extract_docs_and_scores(input_dict):
     # Get results with scores
     results_with_scores = ensemble_retriever_with_scores.invoke(query)
     
+    # Optional debug logging to inspect result shapes
+    import os
+    if os.getenv("RAG_DEBUG", "false").lower() == "true":
+        print("[rag_score] raw results_with_scores:")
+        for i, item in enumerate(results_with_scores):
+            try:
+                print(i, type(item), repr(item))
+            except Exception:
+                print(i, type(item), str(item))
+    
     # Separate documents and scores
-    documents = [doc for doc, score in results_with_scores]
-    scores = [score for doc, score in results_with_scores]
+    documents = []
+    scores = []
+    for item in results_with_scores:
+        # item may be (doc, score) or (doc, score, ...extra)
+        if isinstance(item, (list, tuple)):
+            if len(item) >= 2:
+                doc = item[0]
+                score = item[1]
+            elif len(item) == 1:
+                doc = item[0]
+                score = None
+            else:
+                continue
+        else:
+            # unexpected shape: treat item as document
+            doc = item
+            score = None
+
+        documents.append(doc)
+        scores.append(score)
     
     # Format context as before (for compatibility)
     context_str = doc_output_formatter(documents) if documents else ""

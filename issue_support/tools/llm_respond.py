@@ -21,7 +21,7 @@ prompt = ChatPromptTemplate(
         ("system", llm_prompt),
         ("human", "{user_query}")
     ],
-    input_variables= ["user_query"],
+    input_variables= ["user_query","messages"],
 
     partial_variables= {
         "output_structure": parser.get_format_instructions()
@@ -30,13 +30,13 @@ prompt = ChatPromptTemplate(
 
 # Defining the pipeline
 llm_chain_pipeline = (
-    {"user_query": RunnablePassthrough()}
-    |
-    prompt
-    |
-    llm
-    |
-    parser
+    {
+        "user_query": RunnablePassthrough(),
+        "messages": RunnablePassthrough()
+    }
+    | RunnablePassthrough.assign(
+        response=lambda x: (prompt | llm | parser).invoke(x)
+    )
 )
 
 
