@@ -56,7 +56,7 @@ from langchain_core.runnables import RunnablePassthrough
 
 
 class RouterOutput(BaseModel):
-    category: Literal["PC Issue", "Not Related"]= Field(description="The user's question is categorized into these pre-defined categories. Here, PC Issue is a PC Issue troubleshooting guide. Then, Not Related is anything that is unrelated to PC Issue troubleshooting.")
+    category: Literal["RAG relevant Issue", "Not Related"]= Field(description="The user's question is categorized into these pre-defined categories. Here, RAG relevant Issue is a RAG relevant Issue troubleshooting guide. Then, Not Related is anything that is unrelated to RAG relevant Issue troubleshooting.")
     reason: str= Field(description="The reason behind choosing the particular category")
 
 

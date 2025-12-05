@@ -1,3 +1,5 @@
+### LEGACY IMPLEMENTATION OF TESTCASE UI; NEED TO UPDATE WHEN BACKEND IS COMPLETED
+
 import config.env_setup
 import asyncio
 

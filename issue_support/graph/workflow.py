@@ -31,7 +31,7 @@ workflow.add_conditional_edges(
     "Router",
     route_question,
     {
-        "PC Issue": "RAG_call",
+        "RAG relevant Issue": "RAG_call",
         "Not Related": "LLM_call",
     }
 )

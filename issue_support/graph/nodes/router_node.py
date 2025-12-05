@@ -11,13 +11,26 @@ class RouterInput(BaseModel):
 def router_node(state: State):
     """
     Router Node to choose the appropriate path for the user's question.
-    Does this by calling RAG score for the user question + previous messages history to check relevance.
-    If relevant to PC Issue troubleshooting, routes to RAG node, else to generic LLM node.
+    
+    This node evaluates the user's question using RAG scoring to determine relevance.
+    If the question is relevant to RAG document (score >= threshold), it routes to RAG node.
+    Otherwise, it routes to the generic LLM node.
+    
+    The node stores routing information in state fields ('category' and 'context') rather than
+    in message additional_kwargs to keep messages clean.
 
-    Validation: The input 'question' is validated using pydantic to ensure it is a string. 'messages' is assumed to be valid as it is managed by the State.
-    Input: State with 'messages' containing the user's question as content and role as the last message. ex. [{'role': 'user', 'content': 'Hiii', ...}], user question is extracted from the last message.
-    Output: State with 'messages' containing the role (assistant).
-            Stores 'category' and 'context' (if available) in separate state fields to avoid additional_kwargs.
+    Validation: The input 'question' is validated using pydantic to ensure it is a string.
+    
+    Args:
+        state (State): The current state containing:
+            - messages: List with the user's question as the last message (role: 'user' or 'human')
+    
+    Returns:
+        dict: State update containing:
+            - current_question: List with the validated question string
+            - category: "RAG relevant Issue" or "Not Related" (stored in state field)
+            - context: Optional list of filtered context documents (only if category is "RAG relevant Issue")
+            - messages: Optional error message dict (only if an error occurs during routing)
     """
 
     print("-> ROUTER ->")
@@ -85,10 +98,10 @@ def router_node(state: State):
     if scores:
         top_score = max(scores)
         if top_score >= threshold:
-            category = "PC Issue"
+            category = "RAG relevant Issue"
             context = filtered_documents  # Use filtered documents instead of all documents
             #reason = f"RAG can have relevant info to solve this issue routing to RAG call workflow."
-            print(f"Top RAG score {top_score} exceeds threshold {threshold}, routing to PC Issue.")
+            print(f"Top RAG score {top_score} exceeds threshold {threshold}, routing to RAG relevant Issue.")
         else:
             category = "Not Related"
             #reason = f"RAG does not have relevant info to solve this issue, so routing to normal LLM call workflow."
@@ -118,12 +131,17 @@ def router_node(state: State):
 
 def route_question(state: State) -> str:
     """
-    Routing function that returns which path the question should take.
+    Routing function that determines which path the workflow should take.
     
-    Input:
-        state (State): The current state containing the category decision in the state field.
+    Reads the 'category' field from the state (set by router_node) and returns
+    the appropriate route name for LangGraph conditional edges.
+    
+    Args:
+        state (State): The current state containing:
+            - category: String with routing decision ("RAG relevant Issue" or "Not Related")
+    
     Returns:
-        str: Either "PC Issue" or "Not Related" to route to appropriate node
+        str: Either "RAG relevant Issue" or "Not Related" to route to the appropriate node
     """
     print("-> ROUTE QUESTION FUNCTION ->")
     
@@ -133,7 +151,7 @@ def route_question(state: State) -> str:
     # lower casing for safety
     route_decision = route_decision.lower() if isinstance(route_decision, str) else str(route_decision).lower()
     print(f"Routing decision from state: {route_decision}")
-    if route_decision == "pc issue":
-        return "PC Issue"
+    if route_decision == "rag relevant issue": # has to be lower case!
+        return "RAG relevant Issue"
     else:
         return "Not Related"

@@ -4,13 +4,28 @@ from graph.workflow import app
 
 def chatbot():
     """
-    Interactive chatbot with continuous conversation ability.
-    Type 'exit' or 'quit' to end the conversation.
+    Interactive command-line chatbot with continuous conversation ability.
+    
+    This function runs an interactive loop that:
+    1. Accepts user input
+    2. Invokes the LangGraph workflow to process the query
+    3. Displays the assistant's response
+    4. Maintains conversation history across turns
+    
+    The chatbot routes queries to either RAG (for RAG relevant Issues) or generic LLM
+    (for unrelated questions) based on relevance scoring.
+    
+    Commands:
+        - 'exit', 'quit', 'bye', 'goodbye': End the conversation
+        - Ctrl+C: Interrupt and exit
+    
+    Returns:
+        None
     """
     print("\n" + "="*60)
     print("TICKETING SYSTEM CHATBOT")
     print("="*60)
-    print("Welcome! I'm here to help with PC issues or general questions.")
+    print("Welcome! I'm here to help with RAG relevant Issues or general questions.")
     print("Type 'exit' or 'quit' to end the conversation.\n")
     
     messages = []

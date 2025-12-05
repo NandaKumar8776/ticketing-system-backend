@@ -7,10 +7,23 @@ from tools.rag_hybrid_retriever import hybrid_search_rag_pipeline_with_context
 def rag_node(state:State):
     """
     RAG Node to generate responses using Hybrid Search RAG pipeline.
+    
+    This node retrieves context from the state's 'context' field (set by the Router node when it checks for it's relevancy)
+    and uses it along with the conversation history to generate a response via the RAG pipeline.
+    The context is extracted from the state field instead of message additional_kwargs.
  
     Validation: Not done here as it is already done at Router node.
-    Input: current_question from State containing the user's latest question as a string and the entire conversation state.
-    Output: State with 'messages' containing the role (assistant), RAG's response to the question, and the context retrieved from RAG. ex. [{'role': 'assistant', 'context': '...retrieved context...'}]
+    
+    Args:
+        state (State): The current state containing:
+            - current_question: List with the latest user question as a string
+            - messages: List of conversation history messages
+            - context: Optional list of context documents retrieved by Router node (stored in state field)
+    
+    Returns:
+        dict: State update with 'messages' containing:
+            - role: "assistant"
+            - content: RAG's response to the question (clean message without additional_kwargs)
     """
 
     print("\n-> RAG NODE ->")

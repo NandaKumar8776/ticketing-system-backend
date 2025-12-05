@@ -41,8 +41,24 @@ from tools.document_loader import initialize_retrievers, vector_store_retriever,
 initialize_retrievers()
 
 def get_ensemble_retriever():
-    """Get the ensemble retriever with only context
-        Used for normal RAG retrieval, assuming the retrieved documents are relevant.
+    """
+    Get the ensemble retriever for standard RAG retrieval.
+    
+    This retriever combines BM25 (keyword search) and Vector Store (semantic search)
+    retrievers. It returns documents without scores, assuming retrieved documents
+    are relevant. Used by the RAG pipeline when context is already validated.
+    
+    Note: This is different from get_ensemble_retriever_with_scores() which is
+    used for routing decisions. This retriever is used when we already know RAG
+    is appropriate for the query.
+    
+    Returns:
+        EnsembleRetriever: An ensemble retriever that returns documents.
+            - BM25 weight: 0.3
+            - Vector Store weight: 0.7
+    
+    Raises:
+        RuntimeError: If retrievers are not initialized.
     """
     from tools.document_loader import vector_store_retriever, BM25_retriever
     from langchain.retrievers import EnsembleRetriever

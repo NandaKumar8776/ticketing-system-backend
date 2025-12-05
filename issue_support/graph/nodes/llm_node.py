@@ -5,13 +5,23 @@ from tools.llm_respond import llm_chain_pipeline
 # No validation class from pydantic is needed here as input is already validated at Router node for the first message containing the user question
 
 def llm_node(state:State):
-    
     """
     LLM Node to generate generic responses using LLM chain pipeline.
+    
+    This node handles questions that are not related to RAG document. It uses the LLM
+    to generate a generic response without RAG context.
 
     Validation: Not done here as it is already done at Router node.
-    Input: current_question from State containing the user's latest question as a string.
-    Output: State with 'messages' containing the LLM's response to the question as content and role as assistant. ex. [{'role': 'assistant', 'content': '...LLM response...'}]
+    
+    Args:
+        state (State): The current state containing:
+            - current_question: List with the latest user question as a string
+            - messages: List of conversation history messages
+    
+    Returns:
+        dict: State update with 'messages' containing:
+            - role: "assistant"
+            - content: LLM's response to the question (clean message without additional_kwargs)
     """
     print("-> LLM NODE ->")
     question = state['current_question'][-1]

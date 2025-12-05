@@ -12,6 +12,15 @@ rag_llm = ChatGroq(
 # Text file reading
 
 def read_prompt(filepath):
+    """
+    Read prompt text from a file.
+    
+    Args:
+        filepath (str): Path to the prompt file to read.
+    
+    Returns:
+        str: The content of the prompt file.
+    """
     with open(filepath, 'r') as file:
         content = file.read()
         return content
@@ -19,6 +28,17 @@ def read_prompt(filepath):
 # LLM Output formatter to return only the last message's content
 
 def output_formatter(state):
+    """
+    Extract the content from the last message in the state.
+    
+    Used to format the final output from the LangGraph workflow for display.
+    
+    Args:
+        state (dict): The state dictionary containing a 'messages' list.
+    
+    Returns:
+        str: The content of the last message in the messages list.
+    """
     return state['messages'][-1].content
 
 
