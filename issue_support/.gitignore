@@ -1,5 +1,31 @@
-
 # Environment variables
 .env
-.env.*
+!.env.example
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Metrics & logs
+metrics.jsonl
+*.log
+
+# Docker volumes
+milvus_data/
+etcd_data/
+minio_data/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/

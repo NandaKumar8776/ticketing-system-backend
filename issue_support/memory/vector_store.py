@@ -1,85 +1,90 @@
-URI = "http://localhost:19530"
+"""
+Milvus Vector Store initialization with HNSW index.
+
+HNSW (Hierarchical Navigable Small World) provides:
+- Sub-millisecond approximate nearest neighbor search at scale
+- Tunable accuracy/speed tradeoff via M and efConstruction params
+- Production-standard index used by major vector DB deployments
+
+Metric: L2 (Euclidean distance) — compatible with all-MiniLM-L6-v2 embeddings.
+"""
+
+import os
+import logging
 
 from langchain_milvus import Milvus
+from pymilvus import Collection, MilvusException, connections, db, utility
 from utils.helpers import embeddings
 
-### Milvus Vector DB Creating if it does not exist
+logger = logging.getLogger(__name__)
 
+# Configuration from environment (with sensible defaults)
+URI = os.getenv("MILVUS_URI", "http://localhost:19530")
+DB_NAME = os.getenv("MILVUS_DB_NAME", "milvus_assignment_test")
+COLLECTION_NAME = "HNSW_Index_PC_Troubleshooting_PDF"
 
-from pymilvus import Collection, MilvusException, connections, db, utility
+# HNSW index parameters
+# M=16: max edges per node (higher = more accurate, more memory)
+# efConstruction=200: build-time search width (higher = better index quality)
+HNSW_INDEX_PARAMS = {
+    "index_type": "HNSW",
+    "metric_type": "L2",
+    "params": {
+        "M": 16,
+        "efConstruction": 200,
+    },
+}
+
+flat_milvus_vector_store = None
 
 try:
-    conn = connections.connect(host="localhost", port=19530)
+    # Parse host/port from URI
+    uri_clean = URI.replace("http://", "").replace("https://", "")
+    host, port = uri_clean.split(":")
+    conn = connections.connect(host=host, port=int(port))
 
-    db_name = "milvus_assignment_test"
     try:
         existing_databases = db.list_database()
-        db_was_deleted = False
 
-        if db_name in existing_databases:
-            print(f"Database '{db_name}' already exists.")
+        if DB_NAME in existing_databases:
+            logger.info(f"Database '{DB_NAME}' already exists.")
+            db.using_database(DB_NAME)
 
-            # Use the database context
-            db.using_database(db_name)
-
-            # Drop all collections in the database
+            # Drop all collections for a clean re-index on startup
             collections = utility.list_collections()
             for collection_name in collections:
                 collection = Collection(name=collection_name)
                 collection.drop()
-                print(f"Collection '{collection_name}' has been dropped.")
+                logger.info(f"Collection '{collection_name}' dropped.")
 
-            # Drop the database
-            db.drop_database(db_name)
-            db_was_deleted = True
-            print(f"Database '{db_name}' has been deleted.")
-        else:
-            print(f"Database '{db_name}' does not exist.")
-            db_was_deleted = True
+            db.drop_database(DB_NAME)
+            logger.info(f"Database '{DB_NAME}' dropped for re-creation.")
 
-        # Recreate the database if it was deleted
-        if db_was_deleted:
-            db.create_database(db_name)
-            print(f"Database '{db_name}' created successfully.")
+        db.create_database(DB_NAME)
+        logger.info(f"Database '{DB_NAME}' created successfully.")
 
     except MilvusException as e:
-        print(f"An error occurred: {e}")
+        logger.error(f"Milvus database operation failed: {e}")
 
-
-    #### Milvus DB Local Instance running on Docker- connected below
-
-    # Creating a FLAT index vector store with L2 similarity check
-
-
+    # Create vector store with HNSW index
     flat_milvus_vector_store = Milvus(
         embedding_function=embeddings,
-        connection_args={"uri": URI, "db_name": "milvus_assignment_test"},
-        index_params={"index_type": "FLAT", "metric_type": "L2"},
-        collection_name="Flat_Index_PC_Troubleshooting_PDF",
-        collection_description= "Its the contents from the PDF, explaining how to troubleshoot issues with a PC. It uses Flat Index.",
-        consistency_level="Strong"
+        connection_args={"uri": URI, "db_name": DB_NAME},
+        index_params=HNSW_INDEX_PARAMS,
+        collection_name=COLLECTION_NAME,
+        collection_description=(
+            "PC troubleshooting knowledge base indexed with HNSW "
+            "for sub-millisecond approximate nearest neighbor search."
+        ),
+        consistency_level="Strong",
+    )
 
+    logger.info(
+        f"Milvus vector store initialized: collection={COLLECTION_NAME}, "
+        f"index=HNSW (M=16, efConstruction=200), metric=L2"
     )
 
 except Exception as e:
-    print(f"Warning: Could not initialize Milvus vector store: {e}")
-    print("Make sure Milvus is running on localhost:19530")
+    logger.warning(f"Could not initialize Milvus vector store: {e}")
+    logger.warning(f"Make sure Milvus is running on {URI}")
     flat_milvus_vector_store = None
-
-"""
-## NOT NEEDED FOR NOW
-
-# Web Crawler data's vector store 
-
-web_crawler_milvus_vector_store = Milvus(
-    embedding_function=embeddings,
-    connection_args={"uri": URI, "token": "root:Milvus", "db_name": "milvus_assignment_test"},
-    index_params={"index_type": "FLAT", "metric_type": "L2"},
-    collection_name="Flat_Index_Web_Crawler_Data",
-    collection_description= "Its the website scraped contents from a PC troubleshooting Website.",
-    consistency_level="Strong"
-
-)
-
-print("\nEmpty vector stores has been created successfully")
-"""

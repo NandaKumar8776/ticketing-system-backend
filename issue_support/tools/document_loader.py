@@ -76,6 +76,15 @@ def initialize_retrievers():
     else:
         print("\n[Document Loader] Uploading the chunked docs to the vector store")
         try:
+            # Reconnect using the same alias that langchain_milvus assigned to this
+            # vector store object — its internal UUID alias may be stale by the time
+            # add_documents() is called from a different call frame.
+            from pymilvus import connections as _milvus_connections
+            _uri = os.getenv("MILVUS_URI", "http://localhost:19530")
+            _db_name = os.getenv("MILVUS_DB_NAME", "milvus_assignment_test")
+            _alias = getattr(flat_milvus_vector_store, "alias", "default")
+            _milvus_connections.connect(alias=_alias, uri=_uri, db_name=_db_name)
+
             flat_milvus_vector_store.add_documents(
                 documents=docs
             )

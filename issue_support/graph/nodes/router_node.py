@@ -1,8 +1,12 @@
 from memory.state import State
 from pydantic import BaseModel, Field
 from tools.rag_score import extract_docs_and_scores
+from tools.reranker import rerank_documents
 from langchain_core.messages import AIMessage
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class RouterInput(BaseModel):
     user_question: str= Field(description="This is the user's question, that needs to be categorized")
@@ -95,21 +99,38 @@ def router_node(state: State):
     print(f"Filtered documents: {len(filtered_documents)} out of {len(documents)} (removed {len(documents) - len(filtered_documents)} below threshold)")
 
     context = None  # Initialize context variable
+    top_rag_score = None  # Track for metrics
     if scores:
         top_score = max(scores)
+        top_rag_score = top_score
         if top_score >= threshold:
             category = "RAG relevant Issue"
-            context = filtered_documents  # Use filtered documents instead of all documents
-            #reason = f"RAG can have relevant info to solve this issue routing to RAG call workflow."
+
+            # ── Stage 2: Cross-encoder re-ranking ──
+            # Re-rank filtered documents using cross-encoder for higher precision
+            rerank_top_n = int(os.getenv("RERANKER_TOP_N", "3"))
+            try:
+                reranked = rerank_documents(
+                    query=valiadted_question,
+                    documents=filtered_documents,
+                    top_n=rerank_top_n,
+                )
+                context = [doc for doc, score in reranked]
+                logger.info(
+                    f"Re-ranked {len(filtered_documents)} → {len(context)} docs. "
+                    f"Top cross-encoder score: {reranked[0][1]:.4f}" if reranked else ""
+                )
+            except Exception as e:
+                logger.warning(f"Re-ranking failed, falling back to RRF-filtered docs: {e}")
+                context = filtered_documents
+
             print(f"Top RAG score {top_score} exceeds threshold {threshold}, routing to RAG relevant Issue.")
         else:
             category = "Not Related"
-            #reason = f"RAG does not have relevant info to solve this issue, so routing to normal LLM call workflow."
             print(f"Top RAG score {top_score} below threshold {threshold}, routing to Not Related.")
     else:
         # No numeric scores available: fallback to presence of documents
         category = "Not Related"
-        #reason = f"RAG does not have relevant info to solve this issue, so routing to normal LLM call workflow."
         print("No RAG scores available, routing to Not Related by default.")
 
     # Store context and category in separate state fields to avoid additional_kwargs
@@ -117,15 +138,14 @@ def router_node(state: State):
         "current_question": [
             valiadted_question  # Add the current question to state so that downstream nodes can access it
         ],
-        "category": category  # Store category in state field
+        "category": category,  # Store category in state field
+        "top_rag_score": top_rag_score,  # For metrics tracking
     }
-    
+
     # Only add context if it exists
     if context is not None:
         return_this["context"] = context
 
-
-    # Return state dict with routing decision as an AIMessage with/ without context based on the route
     return return_this
 
 

@@ -3,11 +3,11 @@
 from langchain_groq import ChatGroq
 
 llm = ChatGroq(
-    model="meta-llama/llama-4-maverick-17b-128e-instruct",
+    model="llama-3.3-70b-versatile",
 )
 
 rag_llm = ChatGroq(
-    model="moonshotai/kimi-k2-instruct-0905"
+    model="meta-llama/llama-4-scout-17b-16e-instruct"
 )
 # Text file reading
 

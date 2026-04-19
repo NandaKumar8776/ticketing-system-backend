@@ -61,7 +61,7 @@ def get_ensemble_retriever():
         RuntimeError: If retrievers are not initialized.
     """
     from tools.document_loader import vector_store_retriever, BM25_retriever
-    from langchain.retrievers import EnsembleRetriever
+    from langchain_classic.retrievers.ensemble import EnsembleRetriever
     
     if vector_store_retriever is None or BM25_retriever is None:
         raise RuntimeError("Retrievers could not be initialized. Check document loader configuration.")
@@ -74,20 +74,18 @@ def get_ensemble_retriever():
     return retriever
 
 
-# Create ensemble retriever with only context
-ensemble_retriever = get_ensemble_retriever()
-
 # This is old hybrid search RAG pipeline without context
-# LEGACY - kept for reference
-hybrid_search_rag_pipeline = (
-    {"context": RunnablePassthrough() | ensemble_retriever, "user_query": RunnablePassthrough()}
-    |
-    prompt
-    |
-    rag_llm
-    |
-    parser
-)
+# LEGACY - kept for reference (ensemble_retriever created lazily on invocation)
+def _get_legacy_pipeline():
+    _retriever = get_ensemble_retriever()
+    return (
+        {"context": RunnablePassthrough() | _retriever, "user_query": RunnablePassthrough()}
+        | prompt
+        | rag_llm
+        | parser
+    )
+
+hybrid_search_rag_pipeline = _get_legacy_pipeline
 
 # Context from the router node is passed directly to the RAG pipeline now
 hybrid_search_rag_pipeline_with_context = (

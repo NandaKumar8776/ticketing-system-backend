@@ -1,0 +1,13 @@
+.env
+.env.*
+__pycache__
+*.pyc
+.git
+.gitignore
+*.md
+.vscode
+.idea
+milvus_data
+etcd_data
+minio_data
+metrics.jsonl
