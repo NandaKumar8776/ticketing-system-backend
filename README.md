@@ -122,13 +122,13 @@ uvicorn api:app --reload --port 8000
 
 | Metric | Value |
 |--------|-------|
-| Avg eval score (rubric, 0-10) | *Run evaluation to populate* |
-| RAG routing precision | *Run evaluation to populate* |
-| Avg retrieval latency (hybrid + re-rank) | *Run evaluation to populate* |
-| Avg end-to-end latency | *Run evaluation to populate* |
-| Chunk recall@3 | *Run evaluation to populate* |
+| Avg eval score (rubric, 0-10) | TBD |
+| RAG routing precision | TBD |
+| Avg retrieval latency (hybrid + re-rank) | TBD |
+| Avg end-to-end latency | TBD |
+| Chunk recall@3 | TBD |
 
-> Populate these metrics by running `python scripts/evaluate.py` against a golden test set.
+> You can test these metrics yourself by running `python scripts/evaluate.py` against a golden test set.
 
 ## Tech Stack
 
