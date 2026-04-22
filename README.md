@@ -156,12 +156,15 @@ ticketing-system-backend/
 +-- issue_support/                      # Main project directory
     +-- api.py                          # FastAPI REST API
     +-- main.py                         # CLI chatbot interface
+    +-- app.py                          # Streamlit UI (legacy)
     +-- Dockerfile                      # Container image
     +-- docker-compose.yml              # Full-stack deployment
     +-- requirements.txt                # Python dependencies
     +-- .env.example                    # Environment variable template
     +-- config/
     |   +-- env_setup.py                # Environment configuration
+    +-- data/
+    |   +-- PC_trouble-shooting.pdf     # Knowledge base document
     +-- graph/
     |   +-- workflow.py                 # LangGraph pipeline definition
     |   +-- nodes/
@@ -169,24 +172,38 @@ ticketing-system-backend/
     |       +-- rag_node.py             # RAG generation with context
     |       +-- llm_node.py             # Generic LLM generation
     |       +-- evaluator_llm_node.py   # LLM-as-Judge evaluation
-    +-- tools/
-    |   +-- reranker.py                 # Cross-encoder re-ranker
-    |   +-- rag_hybrid_retriever.py     # Hybrid search pipeline
-    |   +-- rag_score.py                # Retrieval scoring
-    |   +-- ensemble_retriever_with_scores.py  # Custom RRF retriever
-    |   +-- document_loader.py          # PDF ingestion + chunking
-    |   +-- evaluator_llm.py            # Evaluator chain definition
-    |   +-- llm_respond.py              # LLM response chain
+    |       +-- get_details_node.py     # Detail extraction node
     +-- memory/
     |   +-- state.py                    # LangGraph typed state schema
     |   +-- vector_store.py             # Milvus HNSW vector store
     |   +-- BM25_keyword_search.py      # BM25 retriever factory
-    +-- prompts/                        # Prompt templates (RAG, LLM, evaluator)
+    +-- prompts/
+    |   +-- rag_prompt.txt              # RAG generation prompt
+    |   +-- llm_prompt.txt              # Generic LLM prompt
+    |   +-- router_prompt.txt           # Router classification prompt
+    |   +-- evaluator_llm_prompt.txt    # LLM-as-Judge rubric prompt
+    +-- tools/
+    |   +-- document_loader.py          # PDF ingestion + chunking
+    |   +-- rag_hybrid_retriever.py     # Hybrid search pipeline
+    |   +-- rag_score.py                # Retrieval scoring
+    |   +-- ensemble_retriever_with_scores.py  # Custom RRF retriever
+    |   +-- reranker.py                 # Cross-encoder re-ranker
+    |   +-- evaluator_llm.py            # Evaluator chain definition
+    |   +-- llm_respond.py              # LLM response chain
     +-- utils/
     |   +-- helpers.py                  # LLM init, formatters, embeddings
     |   +-- metrics.py                  # Structured JSONL metrics logging
     |   +-- langfuse.py                 # Langfuse client setup
+    +-- scripts/
+    |   +-- evaluate.py                 # Evaluation harness (golden test set)
+    |   +-- eval_results.json           # Baseline evaluation results
+    |   +-- eval_results_v2.json        # Post-tuning evaluation results
     +-- tests/                          # pytest test suite
+    |   +-- test_api.py
+    |   +-- test_helpers.py
+    |   +-- test_metrics.py
+    |   +-- test_reranker.py
+    |   +-- test_state.py
     +-- .github/workflows/ci.yml        # GitHub Actions CI pipeline
 ```
 
