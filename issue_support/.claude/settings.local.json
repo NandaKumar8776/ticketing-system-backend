@@ -6,7 +6,13 @@
       "Bash(curl.exe -s -X POST http://localhost:8000/chat -H \"Content-Type: application/json\" -d \"{\"\"query\"\": \"\"My PC wont boot, what should I check?\"\"}\")",
       "Bash(docker-compose exec:*)",
       "Bash(python scripts/evaluate.py --output scripts/eval_results.json)",
-      "Bash(curl.exe -s -X POST http://localhost:8000/chat -H 'Content-Type: application/json' -d '{query: I see an Invalid system disk error when booting}')"
+      "Bash(curl.exe -s -X POST http://localhost:8000/chat -H 'Content-Type: application/json' -d '{query: I see an Invalid system disk error when booting}')",
+      "Bash(grep -E \"\\\\.\\(docx|xlsx|json|jsonl|lock|tmp\\)$\")",
+      "Bash(while read:*)",
+      "Bash(do echo:*)",
+      "Read(//d/Work/Projects/Ticketing_System_Backend/issue_support/**)",
+      "Bash(done)",
+      "Bash(find D:WorkProjectsTicketing_System_Backendissue_supporttests -name *.py)"
     ]
   }
 }

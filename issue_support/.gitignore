@@ -1,3 +1,7 @@
+# Word documents (interview prep, notes)
+*.docx
+~$*.docx
+
 # Environment variables
 .env
 !.env.example
