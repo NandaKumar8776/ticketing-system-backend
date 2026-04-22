@@ -4,7 +4,9 @@
       "Bash(docker-compose up:*)",
       "Bash(docker-compose logs:*)",
       "Bash(curl.exe -s -X POST http://localhost:8000/chat -H \"Content-Type: application/json\" -d \"{\"\"query\"\": \"\"My PC wont boot, what should I check?\"\"}\")",
-      "Bash(docker-compose exec:*)"
+      "Bash(docker-compose exec:*)",
+      "Bash(python scripts/evaluate.py --output scripts/eval_results.json)",
+      "Bash(curl.exe -s -X POST http://localhost:8000/chat -H 'Content-Type: application/json' -d '{query: I see an Invalid system disk error when booting}')"
     ]
   }
 }

@@ -1,0 +1,134 @@
+{
+  "summary": {
+    "total_queries": 12,
+    "successful": 12,
+    "routing_precision_pct": 50.0,
+    "rag_routing_precision_pct": 25.0,
+    "avg_eval_score": 7.5,
+    "avg_latency_ms": 8236.5,
+    "recall_at_3_pct": 25.0
+  },
+  "results": [
+    {
+      "query": "My PC won't turn on or start. What should I check?",
+      "expected_route": "RAG",
+      "actual_route": "RAG",
+      "route_correct": true,
+      "eval_score": 5.75,
+      "latency_ms": 1829.9,
+      "num_sources": 1,
+      "recall_at_3": true
+    },
+    {
+      "query": "I see an 'Invalid system disk' error when booting. How do I fix it?",
+      "expected_route": "RAG",
+      "actual_route": "LLM",
+      "route_correct": false,
+      "eval_score": 9.75,
+      "latency_ms": 3133.19,
+      "num_sources": 0,
+      "recall_at_3": false
+    },
+    {
+      "query": "The PC does not respond when I press the power button.",
+      "expected_route": "RAG",
+      "actual_route": "LLM",
+      "route_correct": false,
+      "eval_score": 9.1,
+      "latency_ms": 8865.5,
+      "num_sources": 0,
+      "recall_at_3": false
+    },
+    {
+      "query": "My screen is blank after turning on the computer.",
+      "expected_route": "RAG",
+      "actual_route": "LLM",
+      "route_correct": false,
+      "eval_score": 9.75,
+      "latency_ms": 11871.42,
+      "num_sources": 0,
+      "recall_at_3": false
+    },
+    {
+      "query": "The computer is running very slowly. How do I speed it up?",
+      "expected_route": "RAG",
+      "actual_route": "LLM",
+      "route_correct": false,
+      "eval_score": 9.1,
+      "latency_ms": 8797.42,
+      "num_sources": 0,
+      "recall_at_3": false
+    },
+    {
+      "query": "My keyboard is not working. What should I do?",
+      "expected_route": "RAG",
+      "actual_route": "LLM",
+      "route_correct": false,
+      "eval_score": 9.75,
+      "latency_ms": 11208.97,
+      "num_sources": 0,
+      "recall_at_3": false
+    },
+    {
+      "query": "The PC keeps restarting on its own randomly.",
+      "expected_route": "RAG",
+      "actual_route": "RAG",
+      "route_correct": true,
+      "eval_score": 7.65,
+      "latency_ms": 5158.98,
+      "num_sources": 1,
+      "recall_at_3": true
+    },
+    {
+      "query": "How do I recover my files after a hard drive failure?",
+      "expected_route": "RAG",
+      "actual_route": "LLM",
+      "route_correct": false,
+      "eval_score": 8.65,
+      "latency_ms": 11075.69,
+      "num_sources": 0,
+      "recall_at_3": false
+    },
+    {
+      "query": "What is the capital of France?",
+      "expected_route": "LLM",
+      "actual_route": "LLM",
+      "route_correct": true,
+      "eval_score": 7.0,
+      "latency_ms": 9289.86,
+      "num_sources": 0,
+      "recall_at_3": null
+    },
+    {
+      "query": "Can you write me a poem about autumn?",
+      "expected_route": "LLM",
+      "actual_route": "LLM",
+      "route_correct": true,
+      "eval_score": 4.25,
+      "latency_ms": 8804.34,
+      "num_sources": 0,
+      "recall_at_3": null
+    },
+    {
+      "query": "What is the best recipe for chocolate cake?",
+      "expected_route": "LLM",
+      "actual_route": "LLM",
+      "route_correct": true,
+      "eval_score": 2.0,
+      "latency_ms": 10805.26,
+      "num_sources": 0,
+      "recall_at_3": null
+    },
+    {
+      "query": "Tell me a joke.",
+      "expected_route": "LLM",
+      "actual_route": "LLM",
+      "route_correct": true,
+      "eval_score": 7.25,
+      "latency_ms": 7997.63,
+      "num_sources": 0,
+      "recall_at_3": null
+    }
+  ],
+  "timestamp": 1776893460.1725779
+}

@@ -120,15 +120,17 @@ uvicorn api:app --reload --port 8000
 
 ## Pipeline Performance
 
+Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic) using `python scripts/evaluate.py`.
+
 | Metric | Value |
 |--------|-------|
-| Avg eval score (rubric, 0-10) | *Run evaluation to populate* |
-| RAG routing precision | *Run evaluation to populate* |
-| Avg retrieval latency (hybrid + re-rank) | *Run evaluation to populate* |
-| Avg end-to-end latency | *Run evaluation to populate* |
-| Chunk recall@3 | *Run evaluation to populate* |
+| Avg eval score (rubric, 0-10) | **7.88** |
+| RAG routing precision | **100%** |
+| Overall routing precision | **66.7%** |
+| Avg end-to-end latency | **3,094ms** |
+| Chunk recall@3 | **100%** |
 
-> Populate these metrics by running `python scripts/evaluate.py` against a golden test set.
+> Re-run evaluation: `python scripts/evaluate.py --output scripts/eval_results.json`
 
 ## Tech Stack
 
