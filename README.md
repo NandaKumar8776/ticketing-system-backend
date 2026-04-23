@@ -1,8 +1,8 @@
-# Agentic RAG System - PC Troubleshooting Assistant
+# Production RAG Pipeline — Agentic IT Support Assistant
 
-> Production-grade agentic RAG pipeline built with **LangGraph**, **hybrid BM25 + vector search**, **cross-encoder re-ranking**, and **LLM-as-judge evaluation** - served via **FastAPI** and containerized with **Docker Compose**.
+> Production-grade agentic RAG pipeline built with **LangGraph**, **hybrid BM25 + vector search**, **cross-encoder re-ranking**, **multi-layer guardrails**, and **LLM-as-judge evaluation** — served via **FastAPI**, Streamlit UI, and containerized with **Docker Compose**.
 
-[![CI Pipeline](https://github.com/NandaKumar8776/ticketing-system-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/NandaKumar8776/ticketing-system-backend/actions)
+[![CI Pipeline](https://github.com/NandaKumar8776/production-rag-langgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/NandaKumar8776/production-rag-langgraph/actions)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2-purple.svg)](https://github.com/langchain-ai/langgraph)
@@ -18,6 +18,13 @@ User Query
 [FastAPI /chat endpoint]
     |
     v
++---------------------+
+|   Guardrails Node   |  <-- Prompt injection, jailbreak, PII, abuse (4-layer check)
++--------+------------+
+         |
+    safe / blocked?
+         |
+    v (safe)      v (blocked) --> Refusal message
 +-------------------+
 |   Router Node     |  <-- Hybrid BM25 + Milvus HNSW retrieval
 |   (Score-gated)   |      + Cross-encoder re-ranking (ms-marco-MiniLM)
@@ -36,18 +43,20 @@ User Query
     eval_score + answer
          |
          v
-   JSON Response + Langfuse trace + metrics.jsonl
+   JSON Response + Streamlit UI + Langfuse trace + metrics.jsonl
 ```
 
 ## Key Technical Features
 
 | Feature | Implementation |
 |---------|---------------|
+| **Multi-Layer Guardrails** | 4-stage safety check: prompt injection → jailbreak → PII → LLM abuse classifier |
 | **Hybrid Retrieval** | BM25 (sparse) + Milvus HNSW (dense) with Reciprocal Rank Fusion |
-| **Two-Stage Re-ranking** | Ensemble retrieval -> cross-encoder re-ranker (`ms-marco-MiniLM-L-6-v2`) |
+| **Two-Stage Re-ranking** | Ensemble retrieval → cross-encoder re-ranker (`ms-marco-MiniLM-L-6-v2`) |
 | **Score-Gated Routing** | Queries routed to RAG only when top retrieval score exceeds threshold |
 | **LLM-as-Judge Evaluation** | 4-dimension rubric scoring (relevance, safety, actionability, completeness) |
 | **Agentic Graph** | LangGraph StateGraph with conditional routing, typed state, Pydantic I/O validation |
+| **Streamlit UI** | Chat interface with route badges, eval scores, reranker scores, source cards |
 | **Multi-Modal PDF Ingestion** | PyMuPDF with Tesseract OCR + markdown table extraction |
 | **Observability** | Langfuse traces every node with latency, token counts, and eval scores |
 | **Structured Metrics** | Per-request JSONL logging + `/metrics` API endpoint for aggregations |
@@ -62,8 +71,8 @@ User Query
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/NandaKumar8776/ticketing-system-backend.git
-cd ticketing-system-backend/issue_support
+git clone https://github.com/NandaKumar8776/production-rag-langgraph.git
+cd production-rag-langgraph/issue_support
 
 # 2. Configure environment
 cp .env.example .env
@@ -76,6 +85,9 @@ docker-compose up --build
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{"query": "My PC wont boot after a Windows update"}'
+
+# 5. Launch the Streamlit UI
+streamlit run app.py
 ```
 
 ### Run Locally (Development)
@@ -91,6 +103,9 @@ docker-compose up milvus-standalone -d
 
 # 3. Run the API
 uvicorn api:app --reload --port 8000
+
+# 4. Run the UI (separate terminal)
+streamlit run app.py
 ```
 
 ## API Endpoints
@@ -111,10 +126,23 @@ uvicorn api:app --reload --port 8000
   "top_rag_score": 0.87,
   "num_sources": 3,
   "sources": [
-    {"content": "If Windows fails to boot...", "page": 5, "score": 0.92}
+    {"content": "If Windows fails to boot...", "page": 5, "score": 5.29}
   ],
   "latency_ms": 1850.5,
-  "eval_score": 8.2
+  "eval_score": 8.2,
+  "guardrail_triggered": false,
+  "guardrail_reason": null
+}
+```
+
+### Guardrail Block Example
+
+```json
+{
+  "answer": "I'm not able to process that request...",
+  "route": "BLOCKED",
+  "guardrail_triggered": true,
+  "guardrail_reason": "prompt_injection"
 }
 ```
 
@@ -143,6 +171,8 @@ Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic
 | Embeddings | all-MiniLM-L6-v2 (HuggingFace) |
 | LLM Inference | Groq (Llama-3.3-70b, Llama-4-Scout) |
 | API Framework | FastAPI + Pydantic v2 |
+| Frontend | Streamlit |
+| Guardrails | Regex + LLM classifier (no external library) |
 | Observability | Langfuse (traces, scores, dashboards) |
 | Containerization | Docker + Docker Compose |
 | CI/CD | GitHub Actions (test + lint + Docker build) |
@@ -151,12 +181,12 @@ Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic
 ## Project Structure
 
 ```
-ticketing-system-backend/
+production-rag-langgraph/
 +-- README.md
 +-- issue_support/                      # Main project directory
     +-- api.py                          # FastAPI REST API
+    +-- app.py                          # Streamlit chat UI
     +-- main.py                         # CLI chatbot interface
-    +-- app.py                          # Streamlit UI (legacy)
     +-- Dockerfile                      # Container image
     +-- docker-compose.yml              # Full-stack deployment
     +-- requirements.txt                # Python dependencies
@@ -168,6 +198,7 @@ ticketing-system-backend/
     +-- graph/
     |   +-- workflow.py                 # LangGraph pipeline definition
     |   +-- nodes/
+    |       +-- guardrails_node.py      # 4-layer safety checks
     |       +-- router_node.py          # Score-gated routing + re-ranking
     |       +-- rag_node.py             # RAG generation with context
     |       +-- llm_node.py             # Generic LLM generation
@@ -182,6 +213,7 @@ ticketing-system-backend/
     |   +-- llm_prompt.txt              # Generic LLM prompt
     |   +-- router_prompt.txt           # Router classification prompt
     |   +-- evaluator_llm_prompt.txt    # LLM-as-Judge rubric prompt
+    |   +-- guardrails_llm_prompt.txt   # Guardrails abuse classifier prompt
     +-- tools/
     |   +-- document_loader.py          # PDF ingestion + chunking
     |   +-- rag_hybrid_retriever.py     # Hybrid search pipeline

@@ -90,12 +90,14 @@ class ChatResponse(BaseModel):
     """Structured response from the RAG pipeline."""
     answer: str = Field(..., description="Generated answer")
     session_id: str = Field(..., description="Session ID for this conversation")
-    route: str = Field(..., description="Pipeline route taken: 'RAG' or 'LLM'")
+    route: str = Field(..., description="Pipeline route taken: 'RAG', 'LLM', or 'BLOCKED'")
     top_rag_score: Optional[float] = Field(None, description="Highest retrieval relevance score")
     num_sources: int = Field(0, description="Number of source documents used")
     sources: list[SourceDocument] = Field(default_factory=list, description="Retrieved source chunks")
     latency_ms: float = Field(..., description="End-to-end latency in milliseconds")
     eval_score: Optional[float] = Field(None, description="LLM-as-judge evaluation score (0-10)")
+    guardrail_triggered: bool = Field(False, description="True if the request was blocked by guardrails")
+    guardrail_reason: Optional[str] = Field(None, description="Reason for guardrail block if triggered")
 
 
 class HealthResponse(BaseModel):
@@ -165,9 +167,15 @@ async def chat(request: ChatRequest):
     # Save assistant response to session
     session_messages.append({"role": "assistant", "content": answer})
 
-    # Extract routing metadata from state
-    category = result.get("category", "Not Related")
-    route_label = "RAG" if "rag" in category.lower() else "LLM"
+    # Extract guardrail and routing metadata from state
+    guardrail_triggered = result.get("guardrail_triggered", False)
+    guardrail_reason = result.get("guardrail_reason", None)
+
+    if guardrail_triggered:
+        route_label = "BLOCKED"
+    else:
+        category = result.get("category", "Not Related")
+        route_label = "RAG" if "rag" in category.lower() else "LLM"
 
     # Extract source documents & scores if available
     context_docs = result.get("context", []) or []
@@ -179,7 +187,8 @@ async def chat(request: ChatRequest):
         if hasattr(doc, "metadata"):
             page = doc.metadata.get("page")
         content = getattr(doc, "page_content", str(doc))
-        sources.append(SourceDocument(content=content[:500], page=page))
+        score = doc.metadata.get("rerank_score") if hasattr(doc, "metadata") else None
+        sources.append(SourceDocument(content=content[:500], page=page, score=score))
 
     # Extract eval score if present (will be populated once evaluator is wired in)
     eval_score = result.get("eval_score")
@@ -193,6 +202,8 @@ async def chat(request: ChatRequest):
         "latency_ms": latency_ms,
         "eval_score": eval_score,
         "query_length": len(request.query),
+        "guardrail_triggered": guardrail_triggered,
+        "guardrail_reason": guardrail_reason,
         "timestamp": time.time(),
     }
     _metrics_store.append(metrics_record)
@@ -213,6 +224,8 @@ async def chat(request: ChatRequest):
         sources=sources,
         latency_ms=latency_ms,
         eval_score=eval_score,
+        guardrail_triggered=guardrail_triggered,
+        guardrail_reason=guardrail_reason,
     )
 
 

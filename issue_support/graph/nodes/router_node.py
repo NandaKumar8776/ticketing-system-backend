@@ -115,7 +115,9 @@ def router_node(state: State):
                     documents=filtered_documents,
                     top_n=rerank_top_n,
                 )
-                context = [doc for doc, score in reranked]
+                for doc, score in reranked:
+                    doc.metadata["rerank_score"] = round(float(score), 4)
+                context = [doc for doc, _ in reranked]
                 logger.info(
                     f"Re-ranked {len(filtered_documents)} → {len(context)} docs. "
                     f"Top cross-encoder score: {reranked[0][1]:.4f}" if reranked else ""

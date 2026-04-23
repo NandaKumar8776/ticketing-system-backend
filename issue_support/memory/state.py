@@ -27,6 +27,8 @@ class State(TypedDict):
     category: str                        # Routing category
     top_rag_score: Optional[float]       # Best retrieval score (metrics)
     eval_score: Optional[float]          # Evaluator rubric score 0-10
+    guardrail_triggered: bool            # True if request was blocked by guardrails
+    guardrail_reason: Optional[str]      # Reason for block: "prompt_injection", "jailbreak", "pii", "off_topic_abuse"
 
 
     
