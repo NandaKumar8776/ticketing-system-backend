@@ -8,8 +8,8 @@ from langchain_core.messages import AIMessage
 # ── Regex patterns (compiled once at module load) ────────────────────────────
 
 PROMPT_INJECTION = re.compile(
-    r"ignore (all |previous |prior |your |the )?(instructions?|rules?|guidelines?|prompt|context)"
-    r"|disregard (all |your |the )?(instructions?|rules?|guidelines?|prompt)"
+    r"ignore (all |previous |prior |your |the ){0,3}(instructions?|rules?|guidelines?|prompt|context)"
+    r"|disregard (all |your |the ){0,3}(instructions?|rules?|guidelines?|prompt)"
     r"|you are now\b"
     r"|forget (everything|all|your instructions?)"
     r"|override (your |the )?(instructions?|rules?|guidelines?|system)"
