@@ -306,13 +306,13 @@ Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic
 ```
 production-rag-langgraph/
 +-- README.md
++-- render.yaml                         # Render deployment config (free tier)
 +-- issue_support/                      # Main project directory
     +-- api.py                          # FastAPI REST API
     +-- app.py                          # Streamlit chat UI
     +-- main.py                         # CLI chatbot interface
     +-- mcp_server.py                   # MCP server (Claude Desktop integration)
     +-- claude_desktop_config.json      # Claude Desktop config template
-    +-- render.yaml                     # Render deployment config (free tier)
     +-- Dockerfile                      # Container image
     +-- docker-compose.yml              # Full-stack deployment
     +-- requirements.txt                # Python dependencies

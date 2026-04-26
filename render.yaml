@@ -3,7 +3,8 @@ services:
     name: it-support-rag
     runtime: docker
     plan: free
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./issue_support/Dockerfile
+    dockerContext: ./issue_support
     envVars:
       # --- Required ---
       - key: GROQ_API_KEY
@@ -42,10 +43,3 @@ services:
         value: "0.35"
       - key: RAG_DEBUG
         value: "false"
-
-      # --- Frontend (Streamlit points at deployed API) ---
-      - key: API_URL
-        fromService:
-          name: it-support-rag
-          type: web
-          property: host
