@@ -3,17 +3,20 @@ FastAPI REST API for the Issue Support RAG System.
 
 Provides endpoints for:
 - /chat       : Conversational RAG-powered Q&A
+- /ingest     : Upload a PDF and add it to the retrieval knowledge base
 - /health     : Liveness probe for deployment readiness
 - /metrics    : Aggregated pipeline performance metrics
 """
 
+import os
+import shutil
 import time
 import uuid
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -98,6 +101,15 @@ class ChatResponse(BaseModel):
     eval_score: Optional[float] = Field(None, description="LLM-as-judge evaluation score (0-10)")
     guardrail_triggered: bool = Field(False, description="True if the request was blocked by guardrails")
     guardrail_reason: Optional[str] = Field(None, description="Reason for guardrail block if triggered")
+
+
+class IngestResponse(BaseModel):
+    """Response from the /ingest endpoint."""
+    filename: str = Field(..., description="Name of the ingested file")
+    num_chunks: int = Field(..., description="Number of chunks indexed")
+    total_corpus_chunks: int = Field(..., description="Total chunks in the knowledge base after ingestion")
+    success: bool = Field(..., description="Whether ingestion succeeded")
+    message: str = Field(..., description="Human-readable status message")
 
 
 class HealthResponse(BaseModel):
@@ -226,6 +238,47 @@ async def chat(request: ChatRequest):
         eval_score=eval_score,
         guardrail_triggered=guardrail_triggered,
         guardrail_reason=guardrail_reason,
+    )
+
+
+@app.post("/ingest", response_model=IngestResponse)
+async def ingest(file: UploadFile = File(...)):
+    """
+    Upload a PDF and add it to the retrieval knowledge base.
+
+    The file is chunked, embedded, and indexed into both Milvus (dense) and
+    BM25 (sparse) retrievers without restarting the server. All subsequent
+    /chat requests will include the new document in retrieval.
+
+    Accepts: multipart/form-data with a PDF file field named 'file'.
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    # Save upload to a temp location inside the container data dir
+    upload_dir = os.getenv("UPLOAD_DIR", "/app/data/uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    dest_path = os.path.join(upload_dir, file.filename)
+
+    try:
+        with open(dest_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save upload: {e}")
+
+    from tools.document_loader import ingest_pdf, _all_docs
+    result = ingest_pdf(dest_path)
+
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["error"])
+
+    from tools.document_loader import _all_docs as corpus
+    return IngestResponse(
+        filename=result["filename"],
+        num_chunks=result["num_chunks"],
+        total_corpus_chunks=len(corpus),
+        success=True,
+        message=f"Successfully ingested '{result['filename']}' — {result['num_chunks']} chunks added.",
     )
 
 

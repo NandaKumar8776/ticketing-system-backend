@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "it-support-rag": {
+      "command": "C:\\Users\\Nkay\\anaconda3\\envs\\agentic_2_base\\python.exe",
+      "args": ["mcp_server.py"],
+      "cwd": "/absolute/path/to/issue_support",
+      "env": {
+        "API_URL": "http://localhost:8000"
+      }
+    }
+  }
+}

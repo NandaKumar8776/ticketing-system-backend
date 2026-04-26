@@ -1,11 +1,12 @@
 # Production RAG Pipeline — Agentic IT Support Assistant
 
-> Production-grade agentic RAG pipeline built with **LangGraph**, **hybrid BM25 + vector search**, **cross-encoder re-ranking**, **multi-layer guardrails**, and **LLM-as-judge evaluation** — served via **FastAPI**, Streamlit UI, and containerized with **Docker Compose**.
+> Production-grade agentic RAG pipeline built with **LangGraph**, **hybrid BM25 + vector search**, **cross-encoder re-ranking**, **multi-layer guardrails**, and **LLM-as-judge evaluation** — served via **FastAPI**, Streamlit UI, **MCP server**, and containerized with **Docker Compose**.
 
 [![CI Pipeline](https://github.com/NandaKumar8776/production-rag-langgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/NandaKumar8776/production-rag-langgraph/actions)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2-purple.svg)](https://github.com/langchain-ai/langgraph)
+[![MCP](https://img.shields.io/badge/MCP-1.0-orange.svg)](https://modelcontextprotocol.io)
 
 ---
 
@@ -57,9 +58,11 @@ User Query
 | **LLM-as-Judge Evaluation** | 4-dimension rubric scoring (relevance, safety, actionability, completeness) |
 | **Agentic Graph** | LangGraph StateGraph with conditional routing, typed state, Pydantic I/O validation |
 | **Streamlit UI** | Chat interface with route badges, eval scores, reranker scores, source cards |
+| **Dynamic PDF Ingestion** | `POST /ingest` — upload any PDF at runtime, indexed into Milvus + BM25 without restart |
 | **Multi-Modal PDF Ingestion** | PyMuPDF with Tesseract OCR + markdown table extraction |
 | **Observability** | Langfuse traces every node with latency, token counts, and eval scores |
 | **Structured Metrics** | Per-request JSONL logging + `/metrics` API endpoint for aggregations |
+| **MCP Server** | Exposes `query_it_support` and `get_pipeline_metrics` as tools for Claude Desktop |
 
 ## Quick Start
 
@@ -88,6 +91,9 @@ curl -X POST http://localhost:8000/chat \
 
 # 5. Launch the Streamlit UI
 streamlit run app.py
+
+# 6. (Optional) Run the MCP server for Claude Desktop integration
+python mcp_server.py
 ```
 
 ### Run Locally (Development)
@@ -113,6 +119,7 @@ streamlit run app.py
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/chat` | Send a query, get RAG-powered response with metadata |
+| `POST` | `/ingest` | Upload a PDF and add it to the knowledge base (no restart needed) |
 | `GET` | `/health` | Liveness probe for container orchestration |
 | `GET` | `/metrics` | Aggregated pipeline performance metrics |
 
@@ -146,6 +153,52 @@ streamlit run app.py
 }
 ```
 
+## MCP Server
+
+The pipeline is also served as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server, letting Claude Desktop — or any MCP-compatible client — call the RAG pipeline as a native tool.
+
+### Tools Exposed
+
+| Tool | Description |
+|------|-------------|
+| `query_it_support` | Ask a PC troubleshooting question — runs the full RAG pipeline and returns a sourced answer |
+| `get_pipeline_metrics` | Fetch aggregated latency, route distribution, and eval scores |
+
+### Setup
+
+```bash
+# 1. Install MCP dependency
+pip install "mcp[cli]>=1.0.0"
+
+# 2. Start the API (must be running first)
+docker-compose up -d
+
+# 3. Run the MCP server
+cd issue_support
+python mcp_server.py
+```
+
+### Claude Desktop Integration
+
+Add to your Claude Desktop `claude_desktop_config.json` (see `issue_support/claude_desktop_config.json` for a template):
+
+```json
+{
+  "mcpServers": {
+    "it-support-rag": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "cwd": "/absolute/path/to/issue_support",
+      "env": { "API_URL": "http://localhost:8000" }
+    }
+  }
+}
+```
+
+Once connected, Claude can call `query_it_support` and `get_pipeline_metrics` directly in conversation.
+
+---
+
 ## Pipeline Performance
 
 Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic) using `python scripts/evaluate.py`.
@@ -172,6 +225,7 @@ Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic
 | LLM Inference | Groq (Llama-3.3-70b, Llama-4-Scout) |
 | API Framework | FastAPI + Pydantic v2 |
 | Frontend | Streamlit |
+| MCP Server | Model Context Protocol (Claude Desktop tool integration) |
 | Guardrails | Regex + LLM classifier (no external library) |
 | Observability | Langfuse (traces, scores, dashboards) |
 | Containerization | Docker + Docker Compose |
@@ -187,6 +241,8 @@ production-rag-langgraph/
     +-- api.py                          # FastAPI REST API
     +-- app.py                          # Streamlit chat UI
     +-- main.py                         # CLI chatbot interface
+    +-- mcp_server.py                   # MCP server (Claude Desktop integration)
+    +-- claude_desktop_config.json      # Claude Desktop config template
     +-- Dockerfile                      # Container image
     +-- docker-compose.yml              # Full-stack deployment
     +-- requirements.txt                # Python dependencies
