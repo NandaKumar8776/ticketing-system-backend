@@ -63,6 +63,7 @@ User Query
 | **Observability** | Langfuse traces every node with latency, token counts, and eval scores |
 | **Structured Metrics** | Per-request JSONL logging + `/metrics` API endpoint for aggregations |
 | **MCP Server** | Exposes `query_it_support` and `get_pipeline_metrics` as tools for Claude Desktop |
+| **Data Versioning** | DVC tracks the knowledge base PDF and eval artifacts — `dvc pull` to reproduce any version |
 
 ## Quick Start
 
@@ -153,6 +154,40 @@ streamlit run app.py
 }
 ```
 
+## Data Versioning (DVC)
+
+Large files are tracked with [DVC](https://dvc.org) instead of git. Git stores the full content of every committed file forever — committing a large PDF bloats the repo history permanently and hits GitHub's 100 MB file limit. DVC stores the actual file in a separate cache and commits only a tiny `.dvc` pointer (a hash + path, a few lines of text). Running `dvc pull` after a clone fetches the real files.
+
+### Tracked Artifacts
+
+| File | Why DVC |
+|---|---|
+| `data/PC_trouble-shooting.pdf` | Knowledge base — swapping in a larger corpus later won't balloon git history |
+| `scripts/eval_results.json` | Baseline eval snapshot — versioned alongside the code that produced it |
+| `scripts/eval_results_v2.json` | Post-tuning eval snapshot — reproducible by checking out the matching git tag |
+
+### Usage
+
+```bash
+# After cloning — restore all tracked files
+dvc pull
+
+# Add a new knowledge base document
+dvc add data/new-corpus.pdf
+dvc push
+
+# Re-run evaluation and version the new results
+python scripts/evaluate.py --output scripts/eval_results_v3.json
+dvc add scripts/eval_results_v3.json
+dvc push
+
+# Switch from the default local cache to a cloud remote (S3, GCS, Azure)
+dvc remote add -d myremote s3://your-bucket/dvc-cache
+dvc push
+```
+
+---
+
 ## MCP Server
 
 The pipeline is also served as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server, letting Claude Desktop — or any MCP-compatible client — call the RAG pipeline as a native tool.
@@ -225,6 +260,7 @@ Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic
 | LLM Inference | Groq (Llama-3.3-70b, Llama-4-Scout) |
 | API Framework | FastAPI + Pydantic v2 |
 | Frontend | Streamlit |
+| Data Versioning | DVC (tracks knowledge base PDFs and eval artifacts outside git) |
 | MCP Server | Model Context Protocol (Claude Desktop tool integration) |
 | Guardrails | Regex + LLM classifier (no external library) |
 | Observability | Langfuse (traces, scores, dashboards) |
@@ -250,7 +286,8 @@ production-rag-langgraph/
     +-- config/
     |   +-- env_setup.py                # Environment configuration
     +-- data/
-    |   +-- PC_trouble-shooting.pdf     # Knowledge base document
+    |   +-- PC_trouble-shooting.pdf     # Knowledge base document (DVC-tracked)
+    |   +-- PC_trouble-shooting.pdf.dvc # DVC pointer (committed to git)
     +-- graph/
     |   +-- workflow.py                 # LangGraph pipeline definition
     |   +-- nodes/
@@ -284,8 +321,8 @@ production-rag-langgraph/
     |   +-- langfuse.py                 # Langfuse client setup
     +-- scripts/
     |   +-- evaluate.py                 # Evaluation harness (golden test set)
-    |   +-- eval_results.json           # Baseline evaluation results
-    |   +-- eval_results_v2.json        # Post-tuning evaluation results
+    |   +-- eval_results.json           # Baseline evaluation results (DVC-tracked)
+    |   +-- eval_results_v2.json        # Post-tuning evaluation results (DVC-tracked)
     +-- tests/                          # pytest test suite
     |   +-- test_api.py
     |   +-- test_helpers.py

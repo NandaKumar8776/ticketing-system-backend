@@ -46,5 +46,8 @@ streamlit>=1.40.0
 # MCP Server
 mcp[cli]>=1.0.0
 
+# Data Versioning
+dvc>=3.0.0
+
 # Utilities
 numpy>=1.26.0

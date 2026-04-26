@@ -25,7 +25,9 @@
       "Bash(pip install *)",
       "Bash(python -c \"from mcp.server.fastmcp import FastMCP; print\\('MCP import OK'\\)\")",
       "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
-      "Bash(conda run *)"
+      "Bash(conda run *)",
+      "Bash(git rm *)",
+      "Bash(git add *)"
     ]
   }
 }
