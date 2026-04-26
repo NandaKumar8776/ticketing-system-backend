@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: it-support-rag
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      # --- Required ---
+      - key: GROQ_API_KEY
+        sync: false                         # Set in Render dashboard
+
+      # --- Milvus: choose one mode ---
+      # Option A: Milvus Lite (no external service, data resets on redeploy)
+      - key: MILVUS_URI
+        value: ./milvus_demo.db
+
+      # Option B: Zilliz Cloud (persistent, free tier at cloud.zilliz.com)
+      # - key: MILVUS_URI
+      #   sync: false                       # e.g. https://in03-xxx.api.gcp-us-west1.zillizcloud.com
+      # - key: ZILLIZ_API_KEY
+      #   sync: false
+
+      - key: MILVUS_DB_NAME
+        value: demo
+
+      # --- Prompt paths (container-absolute) ---
+      - key: FILE_DIR
+        value: /app/data/PC_trouble-shooting.pdf
+      - key: LLM_PROMPT_DIR
+        value: /app/prompts/llm_prompt.txt
+      - key: RAG_PROMPT_DIR
+        value: /app/prompts/rag_prompt.txt
+      - key: ROUTER_PROMPT_DIR
+        value: /app/prompts/router_prompt.txt
+      - key: EVALUATOR_LLM_PROMPT_DIR
+        value: /app/prompts/evaluator_llm_prompt.txt
+      - key: GUARDRAILS_PROMPT_DIR
+        value: /app/prompts/guardrails_llm_prompt.txt
+
+      # --- RAG settings ---
+      - key: RAG_SCORE_THRESHOLD
+        value: "0.35"
+      - key: RAG_DEBUG
+        value: "false"
+
+      # --- Frontend (Streamlit points at deployed API) ---
+      - key: API_URL
+        fromService:
+          name: it-support-rag
+          type: web
+          property: host

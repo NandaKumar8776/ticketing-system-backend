@@ -154,6 +154,39 @@ streamlit run app.py
 }
 ```
 
+## Live Demo Deployment
+
+The API can be deployed to [Render](https://render.com) (free tier) using the included `render.yaml`. The vector store supports three modes so you can pick the one that fits your deployment:
+
+| Mode | `MILVUS_URI` value | When to use |
+|---|---|---|
+| **Milvus Lite** | `./milvus_demo.db` | Quickest deploy — no external service, data resets on redeploy |
+| **Zilliz Cloud** | `https://in03-xxx...zillizcloud.com` | Persistent demo — free tier at [cloud.zilliz.com](https://cloud.zilliz.com) |
+| **Local Docker** | `http://localhost:19530` | Local development with full Docker Compose |
+
+### Deploy to Render (Milvus Lite — fastest path)
+
+```bash
+# 1. Fork the repo and connect it to Render
+# 2. Render auto-detects render.yaml — click "Apply"
+# 3. Set GROQ_API_KEY in the Render dashboard under Environment
+# 4. Deploy — the API will be live at https://it-support-rag.onrender.com
+```
+
+### Deploy to Render (Zilliz Cloud — persistent)
+
+```bash
+# 1. Create a free cluster at https://cloud.zilliz.com
+# 2. Copy the Public Endpoint and API Key
+# 3. In render.yaml, comment out the Lite option and uncomment the Zilliz block
+# 4. Set GROQ_API_KEY and ZILLIZ_API_KEY in the Render dashboard
+# 5. Deploy
+```
+
+> **Note:** Render free tier spins down after 15 minutes of inactivity — expect a ~30s cold start on the first request.
+
+---
+
 ## Data Versioning (DVC)
 
 Large files are tracked with [DVC](https://dvc.org) instead of git. Git stores the full content of every committed file forever — committing a large PDF bloats the repo history permanently and hits GitHub's 100 MB file limit. DVC stores the actual file in a separate cache and commits only a tiny `.dvc` pointer (a hash + path, a few lines of text). Running `dvc pull` after a clone fetches the real files.
@@ -279,6 +312,7 @@ production-rag-langgraph/
     +-- main.py                         # CLI chatbot interface
     +-- mcp_server.py                   # MCP server (Claude Desktop integration)
     +-- claude_desktop_config.json      # Claude Desktop config template
+    +-- render.yaml                     # Render deployment config (free tier)
     +-- Dockerfile                      # Container image
     +-- docker-compose.yml              # Full-stack deployment
     +-- requirements.txt                # Python dependencies
