@@ -8,9 +8,13 @@ services:
     envVars:
       # --- Required ---
       - key: GROQ_API_KEY
-        sync: false                         # Set in Render dashboard
+        sync: false                         
 
-      # --- Milvus: choose one mode ---
+      # --- Demo Auth ---
+      - key: DEMO_API_KEY
+        sync: false                         
+
+      # --- Milvus Options---
       # Option A: Milvus Lite (no external service, data resets on redeploy)
       - key: MILVUS_URI
         value: ./milvus_demo.db

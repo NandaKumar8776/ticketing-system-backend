@@ -16,8 +16,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # --- Logging ---
@@ -67,6 +68,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ──────────────────────────────────────────────
+# API Key Auth Middleware
+# ──────────────────────────────────────────────
+
+_DEMO_API_KEY = os.getenv("DEMO_API_KEY", "")
+_PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    """Require X-API-Key header when DEMO_API_KEY is set in the environment.
+    /health and docs endpoints are always public so Render health checks work."""
+    if _DEMO_API_KEY and request.url.path not in _PUBLIC_PATHS:
+        key = request.headers.get("X-API-Key", "")
+        if key != _DEMO_API_KEY:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Invalid or missing API key. Pass your key as X-API-Key header."},
+            )
+    return await call_next(request)
 
 
 # ──────────────────────────────────────────────
