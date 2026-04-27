@@ -81,7 +81,9 @@ def _rebuild_bm25(docs: list):
 def initialize_retrievers():
     """
     Lazy initialization of retrievers. Called on startup via FastAPI lifespan.
-    Loads the default PDF from FILE_DIR and indexes it into Milvus + BM25.
+    Loads the default PDF from FILE_DIR if it exists, then indexes into Milvus + BM25.
+    If FILE_DIR is absent (e.g. cloud deploy where data is DVC-managed), the API
+    starts with an empty knowledge base — documents can be added via POST /ingest.
     """
     global vector_store_retriever, BM25_retriever, _initialized, _all_docs
 
@@ -89,6 +91,12 @@ def initialize_retrievers():
         return
 
     print("\n[Document Loader] Initializing retrievers...")
+
+    if not os.path.exists(file_path):
+        print(f"\n[Document Loader] WARNING: Default PDF not found at '{file_path}'.")
+        print("\n[Document Loader] Starting with empty knowledge base — use POST /ingest to load documents.")
+        _initialized = True
+        return
 
     docs = _load_and_chunk(file_path)
     _all_docs.extend(docs)
