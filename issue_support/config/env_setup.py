@@ -5,19 +5,20 @@ import warnings
 from dotenv import load_dotenv
 load_dotenv()
 
-os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
-os.environ["LANGCHAIN_PROJECT_NAME"] = os.getenv("LANGCHAIN_PROJECT_NAME")
-os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
+def _set_if_present(key: str) -> None:
+    val = os.getenv(key)
+    if val is not None:
+        os.environ[key] = val
 
-# Configure Langfuse for tracing
-# Note: We're using Langfuse CallbackHandler for LangChain tracing (see workflow.py)
-# OpenTelemetry OTLP export is disabled to avoid conflicts and 404 errors
+_set_if_present("GROQ_API_KEY")
+_set_if_present("LANGCHAIN_PROJECT_NAME")
+_set_if_present("LANGCHAIN_API_KEY")
+_set_if_present("LANGFUSE_SECRET_KEY")
+_set_if_present("LANGFUSE_PUBLIC_KEY")
+_set_if_present("LANGFUSE_BASE_URL")
+
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
-os.environ["OTEL_SDK_DISABLED"] = "true"  # Disable OpenTelemetry SDK to prevent OTLP export errors
-
-os.environ["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY")
-os.environ["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY")
-os.environ["LANGFUSE_BASE_URL"] = os.getenv("LANGFUSE_BASE_URL")
+os.environ["OTEL_SDK_DISABLED"] = "true"
 
 # Disable all OpenTelemetry exporters to prevent 404 errors
 # Langfuse CallbackHandler handles tracing automatically for LangChain operations
