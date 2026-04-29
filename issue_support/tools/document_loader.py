@@ -50,11 +50,13 @@ def _upload_to_vector_store(docs: list) -> bool:
         return False
 
     try:
-        from pymilvus import connections as _milvus_connections
-        _uri = os.getenv("MILVUS_URI", "http://localhost:19530")
-        _db_name = os.getenv("MILVUS_DB_NAME", "milvus_assignment_test")
-        _alias = getattr(flat_milvus_vector_store, "alias", "default")
-        _milvus_connections.connect(alias=_alias, uri=_uri, db_name=_db_name)
+        _uri = os.getenv("APP_MILVUS_URI") or os.getenv("MILVUS_URI", "http://localhost:19530")
+        if _uri.startswith("http://"):
+            # Self-hosted Milvus — explicitly reconnect to ensure DB context is set
+            from pymilvus import connections as _milvus_connections
+            _db_name = os.getenv("MILVUS_DB_NAME", "milvus_assignment_test")
+            _alias = getattr(flat_milvus_vector_store, "alias", "default")
+            _milvus_connections.connect(alias=_alias, uri=_uri, db_name=_db_name)
 
         flat_milvus_vector_store.add_documents(documents=docs)
         return True

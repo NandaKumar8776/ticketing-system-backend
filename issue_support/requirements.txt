@@ -11,7 +11,7 @@ langchain-milvus>=0.1.0
 sentence-transformers>=3.0.0
 
 # Vector Database
-pymilvus>=2.4.0
+pymilvus[milvus_lite]>=2.4.0
 
 # BM25 Keyword Search
 rank-bm25>=0.2.2

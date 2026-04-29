@@ -26,9 +26,16 @@ def get_ensemble_retriever_with_scores():
     """
     from tools.document_loader import vector_store_retriever, BM25_retriever
     
-    if vector_store_retriever is None or BM25_retriever is None:
-        raise RuntimeError("Retrievers could not be initialized. Check document loader configuration.")
-    
+    if BM25_retriever is None:
+        raise RuntimeError("Knowledge base is empty. POST /ingest to load documents first.")
+
+    if vector_store_retriever is None:
+        # Milvus unavailable — degrade to BM25-only keyword search
+        return EnsembleRetrieverWithScores(
+            retrievers=[BM25_retriever],
+            weights=[1.0]
+        )
+
     return EnsembleRetrieverWithScores(
         retrievers=[BM25_retriever, vector_store_retriever],
         weights=[0.3, 0.7]
