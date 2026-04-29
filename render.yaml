@@ -16,7 +16,7 @@ services:
 
       # --- Milvus Options---
       # Option A: Milvus Lite (no external service, data resets on redeploy)
-      - key: MILVUS_URI
+      - key: APP_MILVUS_URI
         value: ./milvus_demo.db
 
       # Option B: Zilliz Cloud (persistent, free tier at cloud.zilliz.com)

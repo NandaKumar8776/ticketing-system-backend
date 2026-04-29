@@ -18,7 +18,9 @@ from utils.helpers import embeddings
 
 logger = logging.getLogger(__name__)
 
-URI = os.getenv("MILVUS_URI", "http://localhost:19530")
+# APP_MILVUS_URI takes priority — use this for Lite/Cloud URIs so pymilvus
+# doesn't read a non-HTTP value from MILVUS_URI at import time.
+URI = os.getenv("APP_MILVUS_URI") or os.getenv("MILVUS_URI", "http://localhost:19530")
 DB_NAME = os.getenv("MILVUS_DB_NAME", "milvus_assignment_test")
 ZILLIZ_API_KEY = os.getenv("ZILLIZ_API_KEY", "")
 COLLECTION_NAME = "HNSW_Index_PC_Troubleshooting_PDF"

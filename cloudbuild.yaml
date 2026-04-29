@@ -31,9 +31,10 @@ steps:
       - '--allow-unauthenticated'
       - '--port=8000'
       - '--memory=2Gi'
-      - '--cpu=1'
+      - '--cpu=2'
       - '--timeout=300'
-      - '--set-env-vars=MILVUS_URI=./milvus_demo.db,MILVUS_DB_NAME=demo,FILE_DIR=/app/data/PC_trouble-shooting.pdf,LLM_PROMPT_DIR=/app/prompts/llm_prompt.txt,RAG_PROMPT_DIR=/app/prompts/rag_prompt.txt,ROUTER_PROMPT_DIR=/app/prompts/router_prompt.txt,EVALUATOR_LLM_PROMPT_DIR=/app/prompts/evaluator_llm_prompt.txt,GUARDRAILS_PROMPT_DIR=/app/prompts/guardrails_llm_prompt.txt,RAG_SCORE_THRESHOLD=0.35,RAG_DEBUG=false'
+      - '--cpu-boost'
+      - '--set-env-vars=APP_MILVUS_URI=./milvus_demo.db,MILVUS_DB_NAME=demo,FILE_DIR=/app/data/PC_trouble-shooting.pdf,LLM_PROMPT_DIR=/app/prompts/llm_prompt.txt,RAG_PROMPT_DIR=/app/prompts/rag_prompt.txt,ROUTER_PROMPT_DIR=/app/prompts/router_prompt.txt,EVALUATOR_LLM_PROMPT_DIR=/app/prompts/evaluator_llm_prompt.txt,GUARDRAILS_PROMPT_DIR=/app/prompts/guardrails_llm_prompt.txt,RAG_SCORE_THRESHOLD=0.35,RAG_DEBUG=false'
       - '--set-secrets=GROQ_API_KEY=groq-api-key:latest,DEMO_API_KEY=demo-api-key:latest'
 
 substitutions:

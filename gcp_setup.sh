@@ -43,7 +43,9 @@ printf '%s' "${DEMO_KEY}" | gcloud secrets create demo-api-key \
 echo "==> Granting Cloud Build access to secrets and Cloud Run..."
 PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')
 CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+CR_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
+# Cloud Build permissions
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${CB_SA}" \
   --role="roles/run.admin"
@@ -55,6 +57,11 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${CB_SA}" \
   --role="roles/iam.serviceAccountUser"
+
+# Cloud Run (Compute) service account — needs secret access at runtime
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${CR_SA}" \
+  --role="roles/secretmanager.secretAccessor"
 
 echo "Setup complete"
 

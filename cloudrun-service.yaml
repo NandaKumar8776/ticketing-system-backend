@@ -22,7 +22,7 @@ spec:
               memory: 2Gi
               cpu: '1'
           env:
-            - name: MILVUS_URI
+            - name: APP_MILVUS_URI
               value: ./milvus_demo.db
             - name: MILVUS_DB_NAME
               value: demo
