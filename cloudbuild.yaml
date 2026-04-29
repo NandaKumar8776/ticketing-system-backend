@@ -41,9 +41,6 @@ substitutions:
   _REPO: it-support-rag
   _SERVICE: it-support-rag
 
-options:
-  logging: CLOUD_LOGGING_ONLY
-
 images:
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:${SHORT_SHA}'
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:latest'
