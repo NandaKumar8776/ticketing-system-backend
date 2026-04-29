@@ -1,0 +1,54 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: it-support-rag
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '3'
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 4
+      timeoutSeconds: 300
+      containers:
+        - image: REGION-docker.pkg.dev/PROJECT_ID/it-support-rag/it-support-rag:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              memory: 2Gi
+              cpu: '1'
+          env:
+            - name: MILVUS_URI
+              value: ./milvus_demo.db
+            - name: MILVUS_DB_NAME
+              value: demo
+            - name: FILE_DIR
+              value: /app/data/PC_trouble-shooting.pdf
+            - name: LLM_PROMPT_DIR
+              value: /app/prompts/llm_prompt.txt
+            - name: RAG_PROMPT_DIR
+              value: /app/prompts/rag_prompt.txt
+            - name: ROUTER_PROMPT_DIR
+              value: /app/prompts/router_prompt.txt
+            - name: EVALUATOR_LLM_PROMPT_DIR
+              value: /app/prompts/evaluator_llm_prompt.txt
+            - name: GUARDRAILS_PROMPT_DIR
+              value: /app/prompts/guardrails_llm_prompt.txt
+            - name: RAG_SCORE_THRESHOLD
+              value: '0.35'
+            - name: RAG_DEBUG
+              value: 'false'
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: groq-api-key
+                  key: latest
+            - name: DEMO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: demo-api-key
+                  key: latest

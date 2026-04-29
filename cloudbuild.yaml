@@ -1,0 +1,49 @@
+steps:
+  # Step 1: Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - -t
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:${SHORT_SHA}'
+      - -t
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:latest'
+      - -f
+      - issue_support/Dockerfile
+      - issue_support
+
+  # Step 2: Push both tags to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - push
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}'
+
+  # Step 3: Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - '${_SERVICE}'
+      - '--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8000'
+      - '--memory=2Gi'
+      - '--cpu=1'
+      - '--timeout=300'
+      - '--set-env-vars=MILVUS_URI=./milvus_demo.db,MILVUS_DB_NAME=demo,FILE_DIR=/app/data/PC_trouble-shooting.pdf,LLM_PROMPT_DIR=/app/prompts/llm_prompt.txt,RAG_PROMPT_DIR=/app/prompts/rag_prompt.txt,ROUTER_PROMPT_DIR=/app/prompts/router_prompt.txt,EVALUATOR_LLM_PROMPT_DIR=/app/prompts/evaluator_llm_prompt.txt,GUARDRAILS_PROMPT_DIR=/app/prompts/guardrails_llm_prompt.txt,RAG_SCORE_THRESHOLD=0.35,RAG_DEBUG=false'
+      - '--set-secrets=GROQ_API_KEY=groq-api-key:latest,DEMO_API_KEY=demo-api-key:latest'
+
+substitutions:
+  _REGION: us-central1
+  _REPO: it-support-rag
+  _SERVICE: it-support-rag
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:latest'

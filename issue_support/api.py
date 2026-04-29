@@ -74,7 +74,7 @@ app.add_middleware(
 # ──────────────────────────────────────────────
 
 _DEMO_API_KEY = os.getenv("DEMO_API_KEY", "")
-_PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+_PUBLIC_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
 
 @app.middleware("http")
 async def api_key_middleware(request: Request, call_next):

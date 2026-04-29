@@ -154,6 +154,49 @@ streamlit run app.py
 }
 ```
 
+## GCP Deployment (Cloud Run)
+
+The primary production deployment targets **Google Cloud Run** via **Cloud Build**, with images stored in **Artifact Registry** and secrets in **Secret Manager**.
+
+### Architecture
+
+```
+GitHub push → Cloud Build trigger → Docker build → Artifact Registry
+                                                         |
+                                                    Cloud Run service
+                                                    (Secret Manager refs)
+```
+
+### One-Time Setup
+
+```bash
+# 1. Create a GCP project and enable billing
+# 2. Run the setup script (enables APIs, creates registry, stores secrets)
+bash gcp_setup.sh <YOUR_PROJECT_ID> us-central1
+
+# 3. Connect GitHub repo to Cloud Build and create a trigger:
+#    https://console.cloud.google.com/cloud-build/triggers
+#    - Source: this repo, branch: main
+#    - Config: cloudbuild.yaml (repo root)
+```
+
+### Manual Deploy
+
+```bash
+# Build and deploy without a trigger
+gcloud builds submit --config cloudbuild.yaml . \
+  --substitutions=_REGION=us-central1,PROJECT_ID=<YOUR_PROJECT_ID>
+```
+
+### Milvus Options on Cloud Run
+
+| Option | `MILVUS_URI` | Notes |
+|---|---|---|
+| Milvus Lite | `./milvus_demo.db` | Default — embedded, resets on redeploy |
+| Zilliz Cloud | `https://...zillizcloud.com` | Persistent — set `ZILLIZ_API_KEY` secret |
+
+---
+
 ## Live Demo Deployment
 
 The API can be deployed to [Render](https://render.com) (free tier) using the included `render.yaml`. The vector store supports three modes so you can pick the one that fits your deployment:
@@ -279,7 +322,8 @@ Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic
 | Guardrails | Regex + LLM classifier (no external library) |
 | Observability | Langfuse (traces, scores, dashboards) |
 | Containerization | Docker + Docker Compose |
-| CI/CD | GitHub Actions (test + lint + Docker build) |
+| Cloud Deployment | GCP Cloud Run + Artifact Registry + Secret Manager |
+| CI/CD | Cloud Build (GCP) · GitHub Actions (test + lint) |
 | PDF Processing | PyMuPDF + Tesseract OCR |
 
 ## Project Structure
@@ -287,6 +331,9 @@ Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic
 ```
 production-rag-langgraph/
 +-- README.md
++-- cloudbuild.yaml                     # Cloud Build CI/CD pipeline (GCP)
++-- cloudrun-service.yaml               # Cloud Run service definition
++-- gcp_setup.sh                        # One-time GCP project setup script
 +-- render.yaml                         # Render deployment config (free tier)
 +-- issue_support/                      # Main project directory
     +-- api.py                          # FastAPI REST API
