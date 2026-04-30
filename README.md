@@ -1,6 +1,6 @@
 # Production RAG Pipeline — Agentic IT Support Assistant
 
-> Production-grade agentic RAG pipeline built with **LangGraph**, **hybrid BM25 + vector search**, **cross-encoder re-ranking**, **multi-layer guardrails**, and **LLM-as-judge evaluation** — served via **FastAPI**, deployed on **GCP Cloud Run**, with **GCS-backed persistent document storage** and an **MCP server** for Claude Desktop integration.
+> Production-grade agentic RAG pipeline built with **LangGraph**, **hybrid BM25 + vector search**, **cross-encoder re-ranking**, **multi-layer guardrails**, and **LLM-as-judge evaluation** — served via **FastAPI**, deployed on **GCP Cloud Run**, backed by **self-hosted Milvus on GKE** with full HNSW indexing, **GCS document persistence**, and an **MCP server** for Claude Desktop integration.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com)
@@ -36,6 +36,8 @@ All endpoints except `/health`, `/docs`, and `/redoc` require `X-API-Key` header
 
 ## Architecture
 
+### Request Pipeline
+
 ```
 User Query
     │
@@ -70,18 +72,76 @@ User Query
    JSON Response + Langfuse trace + /metrics
 ```
 
+### Cloud Infrastructure
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        GCP Project                              │
+│                                                                 │
+│  ┌──────────────────┐        ┌──────────────────────────────┐  │
+│  │   Cloud Run      │        │   GKE Cluster (us-central1)  │  │
+│  │  (it-support-rag)│        │                              │  │
+│  │                  │  VPC   │  ┌────────────────────────┐  │  │
+│  │  FastAPI +       ├───────►│  │  Milvus Standalone Pod  │  │  │
+│  │  LangGraph       │Connector│  │  HNSW index, L2 metric │  │  │
+│  │  pipeline        │        │  │  port 19530             │  │  │
+│  └────────┬─────────┘        │  └────────────┬───────────┘  │  │
+│           │                  │               │               │  │
+│           │                  │  ┌────────────▼───────────┐  │  │
+│           │                  │  │  Internal LoadBalancer  │  │  │
+│           │                  │  │  IP: 10.128.0.7:19530   │  │  │
+│           │                  │  └────────────────────────┘  │  │
+│           │                  │                              │  │
+│           │                  │  Persistent Disks (PVCs):    │  │
+│           │                  │  ├─ milvus:      50Gi        │  │
+│           │                  │  ├─ minio:       20Gi        │  │
+│           │                  │  └─ etcd:        10Gi        │  │
+│           │                  └──────────────────────────────┘  │
+│           │                                                     │
+│           ▼                                                     │
+│  ┌──────────────────┐                                          │
+│  │   Cloud Storage  │                                          │
+│  │  (GCS Bucket)    │                                          │
+│  │  /documents/     │  ← PDFs uploaded on /ingest             │
+│  │  /cache/ (DVC)   │  ← Downloaded on container cold start   │
+│  └──────────────────┘                                          │
+│                                                                 │
+│  ┌──────────────────┐   ┌──────────────────┐                  │
+│  │  Artifact        │   │  Secret Manager  │                  │
+│  │  Registry        │   │  groq-api-key    │                  │
+│  │  (Docker images) │   │  demo-api-key    │                  │
+│  └──────────────────┘   └──────────────────┘                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ### Document Persistence (GCS)
 
 ```
 POST /ingest (PDF)
     │
-    ├─► Indexed into BM25 + Milvus (in-memory, current session)
+    ├─► Chunked → BM25 index + Milvus HNSW (current container)
     └─► Uploaded to gs://ticket-support-01-dvc/documents/  ← persisted
 
 Container cold start
     │
-    └─► Downloads all PDFs from GCS → auto-indexes → ready immediately
-        (no manual /ingest needed after deploy)
+    └─► Downloads all PDFs from GCS → re-indexes into BM25 + Milvus → ready
+        (knowledge base survives container restarts and new deployments)
+```
+
+### CI/CD Pipeline
+
+```
+git push (main)
+    │
+    ▼
+Cloud Build trigger
+    │
+    ├─► docker build issue_support/
+    ├─► docker push → Artifact Registry
+    └─► gcloud run deploy it-support-rag
+            ├─ VPC connector: milvus-connector → GKE
+            ├─ APP_MILVUS_URI: http://10.128.0.7:19530
+            └─ GCS_BUCKET: ticket-support-01-dvc
 ```
 
 ---
@@ -91,7 +151,7 @@ Container cold start
 | Feature | Implementation |
 |---|---|
 | **Multi-Layer Guardrails** | 4-stage: prompt injection → jailbreak → PII → LLM abuse classifier |
-| **Hybrid Retrieval** | BM25 (sparse) + Milvus HNSW (dense) with Reciprocal Rank Fusion |
+| **Hybrid Retrieval** | BM25 (sparse) + Milvus HNSW on GKE (dense) with Reciprocal Rank Fusion |
 | **Two-Stage Re-ranking** | Ensemble retrieval → cross-encoder re-ranker (`ms-marco-MiniLM-L-6-v2`) |
 | **Score-Gated Routing** | Queries routed to RAG only when top retrieval score exceeds threshold |
 | **LLM-as-Judge Evaluation** | 4-dimension rubric: relevance, safety, actionability, completeness (0–10) |
@@ -175,20 +235,9 @@ curl -X POST https://it-support-rag-c72zrk22aa-uc.a.run.app/chat \
 
 ## GCP Deployment (Primary)
 
-The production deployment runs on **Google Cloud Run** with images in **Artifact Registry**, secrets in **Secret Manager**, and documents in **GCS**.
+The production deployment runs on **Google Cloud Run** connected via VPC to **self-hosted Milvus on GKE**, with images in **Artifact Registry**, secrets in **Secret Manager**, and documents in **GCS**.
 
-### Architecture
-
-```
-git push → Cloud Build → Docker build → Artifact Registry
-                                              │
-                                         Cloud Run service
-                                         ├─ Secrets: groq-api-key, demo-api-key
-                                         ├─ GCS: gs://ticket-support-01-dvc/documents/
-                                         └─ Milvus Lite: ./milvus_demo.db (ephemeral)
-```
-
-### One-Time Setup
+### One-Time Infrastructure Setup
 
 ```bash
 # 1. Create GCP project and enable billing
@@ -203,8 +252,34 @@ gcloud storage buckets add-iam-policy-binding gs://<PROJECT_ID>-dvc \
   --member="serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com" \
   --role="roles/storage.objectAdmin"
 
-# 5. Connect GitHub repo to Cloud Build:
-#    https://console.cloud.google.com/cloud-build/triggers
+# 5. Create GKE cluster
+gcloud container clusters create milvus-cluster \
+  --project=<PROJECT_ID> \
+  --zone=us-central1-a \
+  --num-nodes=1 \
+  --machine-type=e2-standard-4 \
+  --disk-size=50GB
+
+# 6. Deploy Milvus Standalone via Helm
+gcloud container clusters get-credentials milvus-cluster --zone=us-central1-a
+helm repo add milvus https://zilliztech.github.io/milvus-helm/ && helm repo update
+helm install milvus milvus/milvus -f milvus-values.yaml
+
+# 7. Create internal LoadBalancer service for Milvus
+kubectl apply -f k8s/milvus-service.yaml
+
+# 8. Create Serverless VPC Connector
+gcloud compute networks vpc-access connectors create milvus-connector \
+  --region=us-central1 --network=default --range=10.8.0.0/28
+
+# 9. Update Cloud Run with VPC connector + Milvus URI
+MILVUS_IP=$(kubectl get svc milvus-standalone-svc -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+gcloud run services update it-support-rag \
+  --vpc-connector=milvus-connector \
+  --update-env-vars=APP_MILVUS_URI=http://${MILVUS_IP}:19530
+
+# 10. Connect GitHub repo to Cloud Build:
+#     https://console.cloud.google.com/cloud-build/triggers
 ```
 
 ### Manual Deploy
@@ -221,7 +296,7 @@ gcloud builds submit --project=<PROJECT_ID> \
 | `GROQ_API_KEY` | — (Secret Manager) | Groq API key |
 | `DEMO_API_KEY` | — (Secret Manager) | X-API-Key value for demo auth |
 | `GCS_BUCKET` | `ticket-support-01-dvc` | GCS bucket for document persistence |
-| `APP_MILVUS_URI` | `./milvus_demo.db` | Milvus Lite path (ephemeral) |
+| `APP_MILVUS_URI` | `http://10.128.0.7:19530` | GKE Milvus internal LoadBalancer IP |
 | `LLM_MODEL` | `llama-3.3-70b-versatile` | Groq model for general LLM node |
 | `RAG_LLM_MODEL` | `meta-llama/llama-4-scout-17b-16e-instruct` | Groq model for RAG node |
 | `RAG_SCORE_THRESHOLD` | `0.35` | Min retrieval score to route to RAG |
@@ -232,13 +307,13 @@ gcloud builds submit --project=<PROJECT_ID> \
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 | `MILVUS_COLLECTION_NAME` | `IT_Support_Knowledge_Base` | Milvus collection name |
 
-### Milvus Options
+### Milvus Deployment Options
 
 | Option | `APP_MILVUS_URI` | Notes |
 |---|---|---|
-| **Milvus Lite** | `./milvus_demo.db` | Default — embedded, resets on container restart |
-| **Zilliz Cloud** | `https://...zillizcloud.com` | Persistent — set `ZILLIZ_API_KEY` secret |
-| **Self-hosted** | `http://localhost:19530` | Local dev with Docker Compose |
+| **GKE (production)** | `http://<internal-lb-ip>:19530` | Self-hosted on GKE, HNSW index, persistent PVCs |
+| **Zilliz Cloud** | `https://...zillizcloud.com` | Managed — set `ZILLIZ_API_KEY` secret |
+| **Local Docker** | `http://localhost:19530` | Local dev with Docker Compose |
 
 ---
 
@@ -362,7 +437,7 @@ python scripts/evaluate.py --output scripts/eval_results.json
 | Layer | Technology |
 |---|---|
 | Orchestration | LangGraph (StateGraph, conditional edges, typed state) |
-| Vector Database | Milvus Lite / Zilliz Cloud (HNSW index, L2 metric) |
+| Vector Database | Self-hosted Milvus on GKE (HNSW index, L2 metric, persistent PVCs) |
 | Sparse Retrieval | BM25 (rank-bm25) |
 | Re-ranking | Cross-encoder (ms-marco-MiniLM-L-6-v2) |
 | Embeddings | all-MiniLM-L6-v2 (HuggingFace) |
@@ -374,7 +449,7 @@ python scripts/evaluate.py --output scripts/eval_results.json
 | Observability | Langfuse (traces, scores, dashboards) |
 | MCP Server | Model Context Protocol (Claude Desktop integration) |
 | Containerization | Docker |
-| Cloud Deployment | GCP Cloud Run + Artifact Registry + Secret Manager |
+| Cloud Deployment | GCP Cloud Run + GKE + Serverless VPC Connector + Artifact Registry + Secret Manager |
 | CI/CD | Cloud Build (GCP) |
 | PDF Processing | PyMuPDF + Tesseract OCR |
 

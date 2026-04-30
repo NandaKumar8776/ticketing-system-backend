@@ -1,0 +1,35 @@
+cluster:
+  enabled: false
+
+standalone:
+  messageQueue: rocksmq
+
+etcd:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+minio:
+  mode: standalone
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+pulsar:
+  enabled: false
+
+pulsarv3:
+  enabled: false
+
+kafka:
+  enabled: false
+
+service:
+  type: LoadBalancer
+  annotations:
+    cloud.google.com/load-balancer-type: "Internal"
