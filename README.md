@@ -1,12 +1,36 @@
 # Production RAG Pipeline — Agentic IT Support Assistant
 
-> Production-grade agentic RAG pipeline built with **LangGraph**, **hybrid BM25 + vector search**, **cross-encoder re-ranking**, **multi-layer guardrails**, and **LLM-as-judge evaluation** — served via **FastAPI**, Streamlit UI, **MCP server**, and containerized with **Docker Compose**.
+> Production-grade agentic RAG pipeline built with **LangGraph**, **hybrid BM25 + vector search**, **cross-encoder re-ranking**, **multi-layer guardrails**, and **LLM-as-judge evaluation** — served via **FastAPI**, deployed on **GCP Cloud Run**, with **GCS-backed persistent document storage** and an **MCP server** for Claude Desktop integration.
 
-[![CI Pipeline](https://github.com/NandaKumar8776/production-rag-langgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/NandaKumar8776/production-rag-langgraph/actions)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2-purple.svg)](https://github.com/langchain-ai/langgraph)
 [![MCP](https://img.shields.io/badge/MCP-1.0-orange.svg)](https://modelcontextprotocol.io)
+[![Cloud Run](https://img.shields.io/badge/GCP-Cloud%20Run-4285F4.svg)](https://cloud.google.com/run)
+
+---
+
+## Live Demo
+
+**API:** `https://it-support-rag-c72zrk22aa-uc.a.run.app`
+
+```bash
+# Chat
+curl -X POST https://it-support-rag-c72zrk22aa-uc.a.run.app/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <secret_key>" \
+  -d '{"query": "My PC fan is not turning on"}'
+
+# Ingest a PDF (persists to GCS — survives container restarts)
+curl -X POST https://it-support-rag-c72zrk22aa-uc.a.run.app/ingest \
+  -H "X-API-Key: <secret_key>" \
+  -F "file=@your-document.pdf"
+
+# Health (public)
+curl https://it-support-rag-c72zrk22aa-uc.a.run.app/health
+```
+
+All endpoints except `/health`, `/docs`, and `/redoc` require `X-API-Key` header. Contact for access.
 
 ---
 
@@ -14,117 +38,95 @@
 
 ```
 User Query
-    |
-    v
-[FastAPI /chat endpoint]
-    |
-    v
-+---------------------+
-|   Guardrails Node   |  <-- Prompt injection, jailbreak, PII, abuse (4-layer check)
-+--------+------------+
-         |
-    safe / blocked?
-         |
-    v (safe)      v (blocked) --> Refusal message
-+-------------------+
-|   Router Node     |  <-- Hybrid BM25 + Milvus HNSW retrieval
-|   (Score-gated)   |      + Cross-encoder re-ranking (ms-marco-MiniLM)
-+--------+----------+
-         |
-    score >= threshold?
+    │
+    ▼
+[FastAPI /chat]   ◄─── X-API-Key auth ─── Rate limiter (30 req/min)
+    │
+    ▼
+┌─────────────────────┐
+│   Guardrails Node   │  ← 4-layer: prompt injection → jailbreak → PII → LLM classifier
+└──────────┬──────────┘
+           │
+      safe / blocked?
+           │
+     ▼ (safe)      ▼ (blocked) ──► Refusal message
+┌──────────────────┐
+│   Router Node    │  ← Hybrid BM25 + Milvus HNSW retrieval
+│  (Score-gated)   │    + Cross-encoder re-ranking (ms-marco-MiniLM)
+└────────┬─────────┘
+         │
+    score ≥ threshold?
     /              \
-   v                v
-[RAG Node]     [LLM Node]
-(Groq LLM +    (Groq LLM,
- context)       general)
-   \                /
-    v              v
-  [Evaluator Node]       <-- LLM-as-Judge (4-dimension rubric, 0-10)
-         |
+   ▼                ▼
+[RAG Node]      [LLM Node]
+(Groq + context) (Groq, general)
+    \                /
+     ▼              ▼
+  [Evaluator Node]       ← LLM-as-Judge (4-dimension rubric, 0–10)
+         │
     eval_score + answer
-         |
-         v
-   JSON Response + Streamlit UI + Langfuse trace + metrics.jsonl
+         │
+         ▼
+   JSON Response + Langfuse trace + /metrics
 ```
+
+### Document Persistence (GCS)
+
+```
+POST /ingest (PDF)
+    │
+    ├─► Indexed into BM25 + Milvus (in-memory, current session)
+    └─► Uploaded to gs://ticket-support-01-dvc/documents/  ← persisted
+
+Container cold start
+    │
+    └─► Downloads all PDFs from GCS → auto-indexes → ready immediately
+        (no manual /ingest needed after deploy)
+```
+
+---
 
 ## Key Technical Features
 
 | Feature | Implementation |
-|---------|---------------|
-| **Multi-Layer Guardrails** | 4-stage safety check: prompt injection → jailbreak → PII → LLM abuse classifier |
+|---|---|
+| **Multi-Layer Guardrails** | 4-stage: prompt injection → jailbreak → PII → LLM abuse classifier |
 | **Hybrid Retrieval** | BM25 (sparse) + Milvus HNSW (dense) with Reciprocal Rank Fusion |
 | **Two-Stage Re-ranking** | Ensemble retrieval → cross-encoder re-ranker (`ms-marco-MiniLM-L-6-v2`) |
 | **Score-Gated Routing** | Queries routed to RAG only when top retrieval score exceeds threshold |
-| **LLM-as-Judge Evaluation** | 4-dimension rubric scoring (relevance, safety, actionability, completeness) |
-| **Agentic Graph** | LangGraph StateGraph with conditional routing, typed state, Pydantic I/O validation |
-| **Streamlit UI** | Chat interface with route badges, eval scores, reranker scores, source cards |
-| **Dynamic PDF Ingestion** | `POST /ingest` — upload any PDF at runtime, indexed into Milvus + BM25 without restart |
-| **Multi-Modal PDF Ingestion** | PyMuPDF with Tesseract OCR + markdown table extraction |
-| **Observability** | Langfuse traces every node with latency, token counts, and eval scores |
-| **Structured Metrics** | Per-request JSONL logging + `/metrics` API endpoint for aggregations |
-| **MCP Server** | Exposes `query_it_support` and `get_pipeline_metrics` as tools for Claude Desktop |
-| **Data Versioning** | DVC tracks the knowledge base PDF and eval artifacts — `dvc pull` to reproduce any version |
+| **LLM-as-Judge Evaluation** | 4-dimension rubric: relevance, safety, actionability, completeness (0–10) |
+| **Agentic Graph** | LangGraph `StateGraph` with conditional routing and typed state |
+| **GCS Document Store** | Uploaded PDFs persisted to GCS — knowledge base survives container restarts |
+| **Dynamic PDF Ingestion** | `POST /ingest` — any PDF at runtime, indexed without restart |
+| **Multi-Modal PDF** | PyMuPDF + Tesseract OCR + markdown table extraction |
+| **BM25 Fallback** | Degrades gracefully to keyword-only retrieval if Milvus is unavailable |
+| **Session Management** | Sliding window (20 msg), max 1000 sessions, LRU eviction |
+| **Rate Limiting** | 30 req/min on `/chat`, 10 req/min on `/ingest` (configurable) |
+| **LLM Resilience** | 30s timeout + 2 retries with backoff on all Groq calls |
+| **Observability** | Langfuse traces every node; `/metrics` tracks success/error rates, latency, eval scores |
+| **MCP Server** | Exposes `query_it_support` + `get_pipeline_metrics` as tools for Claude Desktop |
+| **Data Versioning** | DVC tracks knowledge base PDFs — GCS bucket as remote |
 
-## Quick Start
-
-### Prerequisites
-- Docker & Docker Compose
-- Groq API key ([get one here](https://console.groq.com))
-
-### Run with Docker Compose
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/NandaKumar8776/production-rag-langgraph.git
-cd production-rag-langgraph/issue_support
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env and add your GROQ_API_KEY
-
-# 3. Start all services (API + Milvus + etcd + MinIO)
-docker-compose up --build
-
-# 4. Test the API
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"query": "My PC wont boot after a Windows update"}'
-
-# 5. Launch the Streamlit UI
-streamlit run app.py
-
-# 6. (Optional) Run the MCP server for Claude Desktop integration
-python mcp_server.py
-```
-
-### Run Locally (Development)
-
-```bash
-cd issue_support
-
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Start Milvus (requires Docker)
-docker-compose up milvus-standalone -d
-
-# 3. Run the API
-uvicorn api:app --reload --port 8000
-
-# 4. Run the UI (separate terminal)
-streamlit run app.py
-```
+---
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/chat` | Send a query, get RAG-powered response with metadata |
-| `POST` | `/ingest` | Upload a PDF and add it to the knowledge base (no restart needed) |
-| `GET` | `/health` | Liveness probe for container orchestration |
-| `GET` | `/metrics` | Aggregated pipeline performance metrics |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/chat` | Required | RAG-powered Q&A, session continuity, full pipeline metadata |
+| `POST` | `/ingest` | Required | Upload PDF, index into BM25 + Milvus, persist to GCS |
+| `GET` | `/health` | Public | Dependency check: Milvus, BM25, vector store, GCS |
+| `GET` | `/metrics` | Required | Aggregated latency, route distribution, eval scores, error rate |
+| `GET` | `/docs` | Public | Interactive Swagger UI |
 
-### Example Response
+### Chat Request / Response
+
+```bash
+curl -X POST https://it-support-rag-c72zrk22aa-uc.a.run.app/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <secret_key>" \
+  -d '{"query": "My PC wont boot after a Windows update", "optional-session_id": "optional-uuid"}'
+```
 
 ```json
 {
@@ -133,9 +135,7 @@ streamlit run app.py
   "route": "RAG",
   "top_rag_score": 0.87,
   "num_sources": 3,
-  "sources": [
-    {"content": "If Windows fails to boot...", "page": 5, "score": 5.29}
-  ],
+  "sources": [{"content": "If Windows fails to boot...", "page": 5, "score": 5.29}],
   "latency_ms": 1850.5,
   "eval_score": 8.2,
   "guardrail_triggered": false,
@@ -143,136 +143,186 @@ streamlit run app.py
 }
 ```
 
-### Guardrail Block Example
+### Health Check Response
 
 ```json
 {
-  "answer": "I'm not able to process that request...",
-  "route": "BLOCKED",
-  "guardrail_triggered": true,
-  "guardrail_reason": "prompt_injection"
+  "status": "healthy",
+  "version": "1.0.0",
+  "checks": {
+    "milvus": "ok",
+    "bm25": "ok",
+    "vector_store": "ok",
+    "gcs": "configured"
+  }
 }
 ```
 
-## GCP Deployment (Cloud Run)
+### Ingest Response
 
-The primary production deployment targets **Google Cloud Run** via **Cloud Build**, with images stored in **Artifact Registry** and secrets in **Secret Manager**.
+```json
+{
+  "filename": "manual.pdf",
+  "num_chunks": 145,
+  "total_corpus_chunks": 374,
+  "success": true,
+  "gcs_persisted": true,
+  "message": "Successfully ingested 'manual.pdf' — 145 chunks added."
+}
+```
+
+---
+
+## GCP Deployment (Primary)
+
+The production deployment runs on **Google Cloud Run** with images in **Artifact Registry**, secrets in **Secret Manager**, and documents in **GCS**.
 
 ### Architecture
 
 ```
-GitHub push → Cloud Build trigger → Docker build → Artifact Registry
-                                                         |
-                                                    Cloud Run service
-                                                    (Secret Manager refs)
+git push → Cloud Build → Docker build → Artifact Registry
+                                              │
+                                         Cloud Run service
+                                         ├─ Secrets: groq-api-key, demo-api-key
+                                         ├─ GCS: gs://ticket-support-01-dvc/documents/
+                                         └─ Milvus Lite: ./milvus_demo.db (ephemeral)
 ```
 
 ### One-Time Setup
 
 ```bash
-# 1. Create a GCP project and enable billing
-# 2. Run the setup script (enables APIs, creates registry, stores secrets)
+# 1. Create GCP project and enable billing
+# 2. Run the setup script (enables APIs, creates Artifact Registry, stores secrets)
 bash gcp_setup.sh <YOUR_PROJECT_ID> us-central1
 
-# 3. Connect GitHub repo to Cloud Build and create a trigger:
+# 3. Create GCS bucket for document storage + DVC cache
+gcloud storage buckets create gs://<PROJECT_ID>-dvc --location=us-central1
+
+# 4. Grant Cloud Run SA access to bucket
+gcloud storage buckets add-iam-policy-binding gs://<PROJECT_ID>-dvc \
+  --member="serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
+
+# 5. Connect GitHub repo to Cloud Build:
 #    https://console.cloud.google.com/cloud-build/triggers
-#    - Source: this repo, branch: main
-#    - Config: cloudbuild.yaml (repo root)
 ```
 
 ### Manual Deploy
 
 ```bash
-# Build and deploy without a trigger
-gcloud builds submit --config cloudbuild.yaml . \
-  --substitutions=_REGION=us-central1,PROJECT_ID=<YOUR_PROJECT_ID>
+gcloud builds submit --project=<PROJECT_ID> \
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
 ```
 
-### Milvus Options on Cloud Run
+### Environment Variables (Cloud Run)
 
-| Option | `MILVUS_URI` | Notes |
+| Variable | Default | Description |
 |---|---|---|
-| Milvus Lite | `./milvus_demo.db` | Default — embedded, resets on redeploy |
-| Zilliz Cloud | `https://...zillizcloud.com` | Persistent — set `ZILLIZ_API_KEY` secret |
+| `GROQ_API_KEY` | — (Secret Manager) | Groq API key |
+| `DEMO_API_KEY` | — (Secret Manager) | X-API-Key value for demo auth |
+| `GCS_BUCKET` | `ticket-support-01-dvc` | GCS bucket for document persistence |
+| `APP_MILVUS_URI` | `./milvus_demo.db` | Milvus Lite path (ephemeral) |
+| `LLM_MODEL` | `llama-3.3-70b-versatile` | Groq model for general LLM node |
+| `RAG_LLM_MODEL` | `meta-llama/llama-4-scout-17b-16e-instruct` | Groq model for RAG node |
+| `RAG_SCORE_THRESHOLD` | `0.35` | Min retrieval score to route to RAG |
+| `CHAT_RATE_LIMIT` | `30/minute` | Rate limit for `/chat` |
+| `INGEST_RATE_LIMIT` | `10/minute` | Rate limit for `/ingest` |
+| `MAX_SESSIONS` | `1000` | Max concurrent session slots |
+| `MAX_MSG_WINDOW` | `20` | Messages kept per session (sliding window) |
+| `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
+| `MILVUS_COLLECTION_NAME` | `IT_Support_Knowledge_Base` | Milvus collection name |
 
----
+### Milvus Options
 
-## Live Demo Deployment
-
-The API can be deployed to [Render](https://render.com) (free tier) using the included `render.yaml`. The vector store supports three modes so you can pick the one that fits your deployment:
-
-| Mode | `MILVUS_URI` value | When to use |
+| Option | `APP_MILVUS_URI` | Notes |
 |---|---|---|
-| **Milvus Lite** | `./milvus_demo.db` | Quickest deploy — no external service, data resets on redeploy |
-| **Zilliz Cloud** | `https://in03-xxx...zillizcloud.com` | Persistent demo — free tier at [cloud.zilliz.com](https://cloud.zilliz.com) |
-| **Local Docker** | `http://localhost:19530` | Local development with full Docker Compose |
+| **Milvus Lite** | `./milvus_demo.db` | Default — embedded, resets on container restart |
+| **Zilliz Cloud** | `https://...zillizcloud.com` | Persistent — set `ZILLIZ_API_KEY` secret |
+| **Self-hosted** | `http://localhost:19530` | Local dev with Docker Compose |
+
 ---
 
 ## Data Versioning (DVC)
 
-Large files are tracked with [DVC](https://dvc.org) instead of git. Git stores the full content of every committed file forever — committing a large PDF bloats the repo history permanently and hits GitHub's 100 MB file limit. DVC stores the actual file in a separate cache and commits only a tiny `.dvc` pointer (a hash + path, a few lines of text). Running `dvc pull` after a clone fetches the real files.
+The knowledge base PDF is tracked with [DVC](https://dvc.org). Git stores only a tiny `.dvc` pointer (hash + path); the actual file lives in GCS.
 
-> **Note:** 
-> The knowledge base PDF is DVC-tracked and not bundled in the Docker image. The API starts with an empty knowledge base and logs a warning — use `POST /ingest` to upload your PDF after deploy. Run `dvc pull` locally to restore the file for local development.
+**Remote:** `gs://ticket-support-01-dvc/cache`
+
+```bash
+# After cloning — restore tracked files locally
+dvc pull
+
+# Replace the knowledge base PDF
+cp new-manual.pdf data/PC_trouble-shooting.pdf
+dvc add data/PC_trouble-shooting.pdf
+dvc push       
+git add data/PC_trouble-shooting.pdf.dvc && git commit -m "update knowledge base"
+git push
+# Next Cloud Run deploy will serve the new document automatically
+```
 
 ### Tracked Artifacts
 
 | File | Why DVC |
 |---|---|
-| `data/PC_trouble-shooting.pdf` | Knowledge base — swapping in a larger corpus later won't balloon git history |
-| `scripts/eval_results.json` | Baseline eval snapshot — versioned alongside the code that produced it |
-| `scripts/eval_results_v2.json` | Post-tuning eval snapshot — reproducible by checking out the matching git tag |
+| `data/PC_trouble-shooting.pdf` | Knowledge base — swap for a larger corpus without bloating git |
+| `scripts/eval_results.json` | Baseline eval snapshot — reproducible by checking out the matching tag |
+| `scripts/eval_results_v2.json` | Post-tuning eval snapshot |
 
-### Usage
+---
+
+## Local Development
 
 ```bash
-# After cloning — restore all tracked files
+# 1. Clone
+git clone https://github.com/NandaKumar8776/production-rag-langgraph.git
+cd production-rag-langgraph/issue_support
+
+# 2. Configure environment
+cp .env.example .env
+# Set GROQ_API_KEY (required)
+# Leave GCS_BUCKET empty to use FILE_DIR fallback instead of GCS
+
+# 3. Restore the knowledge base PDF
 dvc pull
 
-# Add a new knowledge base document
-dvc add data/new-corpus.pdf
-dvc push
+# 4. Install dependencies
+pip install -r requirements.txt
 
-# Re-run evaluation and version the new results
-python scripts/evaluate.py --output scripts/eval_results_v3.json
-dvc add scripts/eval_results_v3.json
-dvc push
+# 5. Start Milvus (optional — API falls back to BM25-only if unavailable)
+docker-compose up milvus-standalone -d
 
-# Switch from the default local cache to a cloud remote (S3, GCS, Azure)
-dvc remote add -d myremote s3://your-bucket/dvc-cache
-dvc push
+# 6. Run the API
+uvicorn api:app --reload --port 8000
+
+# 7. Run the Streamlit UI
+streamlit run app.py
+
+# 8. Run the MCP server for Claude Desktop
+python mcp_server.py
 ```
 
 ---
 
 ## MCP Server
 
-The pipeline is also served as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server, letting Claude Desktop — or any MCP-compatible client — call the RAG pipeline as a native tool.
+The pipeline is exposed as an [MCP](https://modelcontextprotocol.io) server so Claude Desktop can call the RAG pipeline as a native tool.
 
-### Tools Exposed
+### Tools
 
 | Tool | Description |
-|------|-------------|
-| `query_it_support` | Ask a PC troubleshooting question — runs the full RAG pipeline and returns a sourced answer |
-| `get_pipeline_metrics` | Fetch aggregated latency, route distribution, and eval scores |
+|---|---|
+| `query_it_support` | Ask a question — runs the full RAG pipeline, returns sourced answer |
+| `get_pipeline_metrics` | Aggregated latency, route distribution, eval scores |
 
 ### Setup
 
 ```bash
-# 1. Install MCP dependency
-pip install "mcp[cli]>=1.0.0"
-
-# 2. Start the API (must be running first)
-docker-compose up -d
-
-# 3. Run the MCP server
-cd issue_support
-python mcp_server.py
+# Inspect / test the MCP server (Windows)
+npx @modelcontextprotocol/inspector "C:\path\to\python.exe" mcp_server.py
 ```
 
-### Claude Desktop Integration
-
-Add to your Claude Desktop `claude_desktop_config.json` (see `issue_support/claude_desktop_config.json` for a template):
+Add to Claude Desktop `claude_desktop_config.json`:
 
 ```json
 {
@@ -287,119 +337,109 @@ Add to your Claude Desktop `claude_desktop_config.json` (see `issue_support/clau
 }
 ```
 
-Once connected, Claude can call `query_it_support` and `get_pipeline_metrics` directly in conversation.
-
 ---
 
 ## Pipeline Performance
 
-Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic) using `python scripts/evaluate.py`.
+Evaluated against a 12-query golden test set (8 PC troubleshooting + 4 off-topic).
 
 | Metric | Value |
-|--------|-------|
-| Avg eval score (rubric, 0-10) | **7.88** |
+|---|---|
+| Avg eval score (rubric, 0–10) | **7.88** |
 | RAG routing precision | **100%** |
 | Overall routing precision | **66.7%** |
 | Avg end-to-end latency | **3,094ms** |
 | Chunk recall@3 | **100%** |
 
-> Re-run evaluation: `python scripts/evaluate.py --output scripts/eval_results.json`
+```bash
+python scripts/evaluate.py --output scripts/eval_results.json
+```
+
+---
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|------------|
-| Orchestration | LangGraph (StateGraph, conditional edges) |
-| Vector Database | Milvus (HNSW index, L2 metric) |
+|---|---|
+| Orchestration | LangGraph (StateGraph, conditional edges, typed state) |
+| Vector Database | Milvus Lite / Zilliz Cloud (HNSW index, L2 metric) |
 | Sparse Retrieval | BM25 (rank-bm25) |
 | Re-ranking | Cross-encoder (ms-marco-MiniLM-L-6-v2) |
 | Embeddings | all-MiniLM-L6-v2 (HuggingFace) |
-| LLM Inference | Groq (Llama-3.3-70b, Llama-4-Scout) |
-| API Framework | FastAPI + Pydantic v2 |
-| Frontend | Streamlit |
-| Data Versioning | DVC (tracks knowledge base PDFs and eval artifacts outside git) |
-| MCP Server | Model Context Protocol (Claude Desktop tool integration) |
-| Guardrails | Regex + LLM classifier (no external library) |
+| LLM Inference | Groq (Llama-3.3-70b, Llama-4-Scout) — 30s timeout, 2 retries |
+| API Framework | FastAPI + Pydantic v2 + slowapi rate limiting |
+| Document Storage | Google Cloud Storage (persistent knowledge base) |
+| Data Versioning | DVC (GCS remote — `gs://ticket-support-01-dvc/cache`) |
+| Guardrails | Regex + LLM classifier (custom, no external library) |
 | Observability | Langfuse (traces, scores, dashboards) |
-| Containerization | Docker + Docker Compose |
+| MCP Server | Model Context Protocol (Claude Desktop integration) |
+| Containerization | Docker |
 | Cloud Deployment | GCP Cloud Run + Artifact Registry + Secret Manager |
-| CI/CD | Cloud Build (GCP) · GitHub Actions (test + lint) |
+| CI/CD | Cloud Build (GCP) |
 | PDF Processing | PyMuPDF + Tesseract OCR |
+
+---
 
 ## Project Structure
 
 ```
 production-rag-langgraph/
-+-- README.md
-+-- cloudbuild.yaml                     # Cloud Build CI/CD pipeline (GCP)
-+-- cloudrun-service.yaml               # Cloud Run service definition
-+-- gcp_setup.sh                        # One-time GCP project setup script
-+-- render.yaml                         # Render deployment config (free tier)
-+-- issue_support/                      # Main project directory
-    +-- api.py                          # FastAPI REST API
-    +-- app.py                          # Streamlit chat UI
-    +-- main.py                         # CLI chatbot interface
-    +-- mcp_server.py                   # MCP server (Claude Desktop integration)
-    +-- claude_desktop_config.json      # Claude Desktop config template
-    +-- Dockerfile                      # Container image
-    +-- docker-compose.yml              # Full-stack deployment
-    +-- requirements.txt                # Python dependencies
-    +-- .env.example                    # Environment variable template
-    +-- config/
-    |   +-- env_setup.py                # Environment configuration
-    +-- data/
-    |   +-- PC_trouble-shooting.pdf     # Knowledge base document (DVC-tracked)
-    |   +-- PC_trouble-shooting.pdf.dvc # DVC pointer (committed to git)
-    +-- graph/
-    |   +-- workflow.py                 # LangGraph pipeline definition
-    |   +-- nodes/
-    |       +-- guardrails_node.py      # 4-layer safety checks
-    |       +-- router_node.py          # Score-gated routing + re-ranking
-    |       +-- rag_node.py             # RAG generation with context
-    |       +-- llm_node.py             # Generic LLM generation
-    |       +-- evaluator_llm_node.py   # LLM-as-Judge evaluation
-    |       +-- get_details_node.py     # Detail extraction node
-    +-- memory/
-    |   +-- state.py                    # LangGraph typed state schema
-    |   +-- vector_store.py             # Milvus HNSW vector store
-    |   +-- BM25_keyword_search.py      # BM25 retriever factory
-    +-- prompts/
-    |   +-- rag_prompt.txt              # RAG generation prompt
-    |   +-- llm_prompt.txt              # Generic LLM prompt
-    |   +-- router_prompt.txt           # Router classification prompt
-    |   +-- evaluator_llm_prompt.txt    # LLM-as-Judge rubric prompt
-    |   +-- guardrails_llm_prompt.txt   # Guardrails abuse classifier prompt
-    +-- tools/
-    |   +-- document_loader.py          # PDF ingestion + chunking
-    |   +-- rag_hybrid_retriever.py     # Hybrid search pipeline
-    |   +-- rag_score.py                # Retrieval scoring
-    |   +-- ensemble_retriever_with_scores.py  # Custom RRF retriever
-    |   +-- reranker.py                 # Cross-encoder re-ranker
-    |   +-- evaluator_llm.py            # Evaluator chain definition
-    |   +-- llm_respond.py              # LLM response chain
-    +-- utils/
-    |   +-- helpers.py                  # LLM init, formatters, embeddings
-    |   +-- metrics.py                  # Structured JSONL metrics logging
-    |   +-- langfuse.py                 # Langfuse client setup
-    +-- scripts/
-    |   +-- evaluate.py                 # Evaluation harness (golden test set)
-    |   +-- eval_results.json           # Baseline evaluation results (DVC-tracked)
-    |   +-- eval_results_v2.json        # Post-tuning evaluation results (DVC-tracked)
-    +-- tests/                          # pytest test suite
-    |   +-- test_api.py
-    |   +-- test_helpers.py
-    |   +-- test_metrics.py
-    |   +-- test_reranker.py
-    |   +-- test_state.py
-    +-- .github/workflows/ci.yml        # GitHub Actions CI pipeline
+├── README.md
+├── cloudbuild.yaml                     # Cloud Build CI/CD pipeline
+├── cloudrun-service.yaml               # Cloud Run service definition
+├── gcp_setup.sh                        # One-time GCP setup script
+├── render.yaml                         # Render deployment (secondary)
+└── issue_support/
+    ├── api.py                          # FastAPI REST API
+    ├── app.py                          # Streamlit chat UI
+    ├── mcp_server.py                   # MCP server (Claude Desktop)
+    ├── Dockerfile
+    ├── requirements.txt
+    ├── .env.example
+    ├── config/
+    │   └── env_setup.py
+    ├── data/
+    │   ├── PC_trouble-shooting.pdf.dvc  # DVC pointer (committed to git)
+    │   └── uploads/                     # Runtime upload staging area
+    ├── graph/
+    │   ├── workflow.py                  # LangGraph pipeline definition
+    │   └── nodes/
+    │       ├── guardrails_node.py       # 4-layer safety checks
+    │       ├── router_node.py           # Score-gated routing + re-ranking
+    │       ├── rag_node.py              # RAG generation with context
+    │       ├── llm_node.py              # Generic LLM generation
+    │       └── evaluator_llm_node.py    # LLM-as-Judge evaluation
+    ├── memory/
+    │   ├── state.py                     # LangGraph typed state schema
+    │   ├── vector_store.py              # Milvus HNSW vector store
+    │   └── BM25_keyword_search.py       # BM25 retriever factory
+    ├── prompts/                         # System prompts for each node
+    ├── tools/
+    │   ├── document_loader.py           # PDF ingestion, chunking, GCS sync
+    │   ├── rag_hybrid_retriever.py      # Hybrid search pipeline
+    │   ├── rag_score.py                 # Retrieval scoring
+    │   ├── ensemble_retriever_with_scores.py  # Custom RRF retriever
+    │   ├── reranker.py                  # Cross-encoder re-ranker
+    │   ├── evaluator_llm.py             # Evaluator chain
+    │   └── llm_respond.py              # LLM response chain
+    ├── utils/
+    │   ├── helpers.py                   # LLM init, formatters, embeddings
+    │   ├── gcs_store.py                 # GCS document persistence
+    │   ├── metrics.py                   # JSONL metrics logging
+    │   └── langfuse.py                  # Langfuse client
+    ├── scripts/
+    │   ├── evaluate.py                  # Evaluation harness
+    │   ├── eval_results.json            # Baseline results (DVC-tracked)
+    │   └── eval_results_v2.json         # Post-tuning results (DVC-tracked)
+    └── tests/
+        ├── test_api.py
+        ├── test_helpers.py
+        ├── test_metrics.py
+        ├── test_reranker.py
+        └── test_state.py
 ```
 
-## Running Tests
-
-```bash
-cd issue_support
-pytest tests/ -v
-```
+---
 
 ## License
 
