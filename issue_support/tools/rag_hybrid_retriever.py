@@ -61,7 +61,7 @@ def get_ensemble_retriever():
         RuntimeError: If retrievers are not initialized.
     """
     from tools.document_loader import vector_store_retriever, BM25_retriever
-    from langchain.retrievers.ensemble import EnsembleRetriever
+    from langchain_classic.retrievers.ensemble import EnsembleRetriever
 
     if BM25_retriever is None:
         raise RuntimeError("Knowledge base is empty. POST /ingest to load documents first.")

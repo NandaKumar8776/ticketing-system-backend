@@ -44,7 +44,7 @@ def evaluator_node(state: State):
             "Evaluator received an empty assistant response. "
             "This likely means a generation node failed without raising an exception."
         )
-        return {"eval_score": None, "eval_skipped": True}
+        return {"eval_score": None}
 
     try:
         result = evaluator_chain.invoke({

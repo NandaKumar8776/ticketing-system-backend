@@ -87,9 +87,9 @@ async def lifespan(app: FastAPI):
     # Graceful shutdown: close persistent connections
     logger.info("Shutting down Issue Support RAG API...")
     try:
-        from utils.gcs_store import _gcs_client
-        if _gcs_client is not None:
-            _gcs_client.close()
+        import utils.gcs_store as _gcs_module
+        if _gcs_module._gcs_client is not None:
+            _gcs_module._gcs_client.close()
             logger.info("GCS client closed.")
     except Exception as e:
         logger.warning(f"Error closing GCS client: {e}")
