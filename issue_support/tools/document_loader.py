@@ -22,6 +22,13 @@ _initialized = False
 _all_docs = []
 
 
+# Only these fields are stored in Milvus — keeps the schema stable across all PDFs.
+# PyMuPDF adds variable fields (producer, creator, title, etc.) that differ per PDF
+# and even per page; if Milvus infers the schema from the first chunk it will require
+# those fields on every subsequent insert and raise DataNotMatchException.
+_MILVUS_METADATA_FIELDS = {"source", "page", "ingested_file"}
+
+
 def _load_and_chunk(pdf_path: str) -> list:
     """Load a PDF file and return chunked documents."""
     loader = PyMuPDFLoader(
@@ -35,8 +42,8 @@ def _load_and_chunk(pdf_path: str) -> list:
 
     for doc in docs:
         doc.page_content = doc.page_content.strip()
-        # Tag each chunk with the source filename for traceability
         doc.metadata["ingested_file"] = os.path.basename(pdf_path)
+        doc.metadata = {k: v for k, v in doc.metadata.items() if k in _MILVUS_METADATA_FIELDS}
 
     return text_splitter.split_documents(docs)
 
