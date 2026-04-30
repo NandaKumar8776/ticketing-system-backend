@@ -188,106 +188,11 @@ curl -X POST https://it-support-rag-c72zrk22aa-uc.a.run.app/chat \
   -d '{"query": "My PC wont boot after a Windows update", "optional-session_id": "optional-uuid"}'
 ```
 
-```json
-{
-  "answer": "To fix a PC that won't boot after a Windows update...",
-  "session_id": "abc-123",
-  "route": "RAG",
-  "top_rag_score": 0.87,
-  "num_sources": 3,
-  "sources": [{"content": "If Windows fails to boot...", "page": 5, "score": 5.29}],
-  "latency_ms": 1850.5,
-  "eval_score": 8.2,
-  "guardrail_triggered": false,
-  "guardrail_reason": null
-}
-```
-
-### Health Check Response
-
-```json
-{
-  "status": "healthy",
-  "version": "1.0.0",
-  "checks": {
-    "milvus": "ok",
-    "bm25": "ok",
-    "vector_store": "ok",
-    "gcs": "configured"
-  }
-}
-```
-
-### Ingest Response
-
-```json
-{
-  "filename": "manual.pdf",
-  "num_chunks": 145,
-  "total_corpus_chunks": 374,
-  "success": true,
-  "gcs_persisted": true,
-  "message": "Successfully ingested 'manual.pdf' — 145 chunks added."
-}
-```
-
 ---
 
 ## GCP Deployment (Primary)
 
 The production deployment runs on **Google Cloud Run** connected via VPC to **self-hosted Milvus on GKE**, with images in **Artifact Registry**, secrets in **Secret Manager**, and documents in **GCS**.
-
-### One-Time Infrastructure Setup
-
-```bash
-# 1. Create GCP project and enable billing
-# 2. Run the setup script (enables APIs, creates Artifact Registry, stores secrets)
-bash gcp_setup.sh <YOUR_PROJECT_ID> us-central1
-
-# 3. Create GCS bucket for document storage + DVC cache
-gcloud storage buckets create gs://<PROJECT_ID>-dvc --location=us-central1
-
-# 4. Grant Cloud Run SA access to bucket
-gcloud storage buckets add-iam-policy-binding gs://<PROJECT_ID>-dvc \
-  --member="serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com" \
-  --role="roles/storage.objectAdmin"
-
-# 5. Create GKE cluster
-gcloud container clusters create milvus-cluster \
-  --project=<PROJECT_ID> \
-  --zone=us-central1-a \
-  --num-nodes=1 \
-  --machine-type=e2-standard-4 \
-  --disk-size=50GB
-
-# 6. Deploy Milvus Standalone via Helm
-gcloud container clusters get-credentials milvus-cluster --zone=us-central1-a
-helm repo add milvus https://zilliztech.github.io/milvus-helm/ && helm repo update
-helm install milvus milvus/milvus -f milvus-values.yaml
-
-# 7. Create internal LoadBalancer service for Milvus
-kubectl apply -f k8s/milvus-service.yaml
-
-# 8. Create Serverless VPC Connector
-gcloud compute networks vpc-access connectors create milvus-connector \
-  --region=us-central1 --network=default --range=10.8.0.0/28
-
-# 9. Update Cloud Run with VPC connector + Milvus URI
-MILVUS_IP=$(kubectl get svc milvus-standalone-svc -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-gcloud run services update it-support-rag \
-  --vpc-connector=milvus-connector \
-  --update-env-vars=APP_MILVUS_URI=http://${MILVUS_IP}:19530
-
-# 10. Connect GitHub repo to Cloud Build:
-#     https://console.cloud.google.com/cloud-build/triggers
-```
-
-### Manual Deploy
-
-```bash
-gcloud builds submit --project=<PROJECT_ID> \
-  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
-```
 
 ### Environment Variables (Cloud Run)
 
@@ -346,37 +251,6 @@ git push
 
 ---
 
-## Local Development
-
-```bash
-# 1. Clone
-git clone https://github.com/NandaKumar8776/production-rag-langgraph.git
-cd production-rag-langgraph/issue_support
-
-# 2. Configure environment
-cp .env.example .env
-# Set GROQ_API_KEY (required)
-# Leave GCS_BUCKET empty to use FILE_DIR fallback instead of GCS
-
-# 3. Restore the knowledge base PDF
-dvc pull
-
-# 4. Install dependencies
-pip install -r requirements.txt
-
-# 5. Start Milvus (optional — API falls back to BM25-only if unavailable)
-docker-compose up milvus-standalone -d
-
-# 6. Run the API
-uvicorn api:app --reload --port 8000
-
-# 7. Run the Streamlit UI
-streamlit run app.py
-
-# 8. Run the MCP server for Claude Desktop
-python mcp_server.py
-```
-
 ---
 
 ## MCP Server
@@ -399,18 +273,6 @@ npx @modelcontextprotocol/inspector "C:\path\to\python.exe" mcp_server.py
 
 Add to Claude Desktop `claude_desktop_config.json`:
 
-```json
-{
-  "mcpServers": {
-    "it-support-rag": {
-      "command": "python",
-      "args": ["mcp_server.py"],
-      "cwd": "/absolute/path/to/issue_support",
-      "env": { "API_URL": "http://localhost:8000" }
-    }
-  }
-}
-```
 
 ---
 
