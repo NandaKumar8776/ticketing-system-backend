@@ -85,6 +85,7 @@ try:
             "for sub-millisecond approximate nearest neighbor search."
         ),
         consistency_level="Strong",
+        drop_old=True,
     )
     logger.info(f"Milvus vector store ready: collection={COLLECTION_NAME}")
 

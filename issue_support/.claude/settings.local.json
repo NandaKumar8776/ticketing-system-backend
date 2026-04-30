@@ -27,7 +27,8 @@
       "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
       "Bash(conda run *)",
       "Bash(git rm *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(gcloud logging *)"
     ]
   }
 }

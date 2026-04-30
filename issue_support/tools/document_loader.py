@@ -22,13 +22,6 @@ _initialized = False
 _all_docs = []
 
 
-# Only these fields are stored in Milvus — keeps the schema stable across all PDFs.
-# PyMuPDF adds variable fields (producer, creator, title, etc.) that differ per PDF
-# and even per page; if Milvus infers the schema from the first chunk it will require
-# those fields on every subsequent insert and raise DataNotMatchException.
-_MILVUS_METADATA_FIELDS = {"source", "page", "ingested_file"}
-
-
 def _load_and_chunk(pdf_path: str) -> list:
     """Load a PDF file and return chunked documents."""
     loader = PyMuPDFLoader(
@@ -40,10 +33,16 @@ def _load_and_chunk(pdf_path: str) -> list:
     )
     docs = loader.load()
 
+    filename = os.path.basename(pdf_path)
     for doc in docs:
         doc.page_content = doc.page_content.strip()
-        doc.metadata["ingested_file"] = os.path.basename(pdf_path)
-        doc.metadata = {k: v for k, v in doc.metadata.items() if k in _MILVUS_METADATA_FIELDS}
+        # Explicitly build a fixed metadata schema so Milvus always sees the same fields.
+        # PyMuPDF adds variable PDF fields (producer, creator, etc.) that differ per page
+        # and would cause DataNotMatchException when Milvus enforces the inferred schema.
+        doc.metadata = {
+            "page": int(doc.metadata.get("page", 0)),
+            "ingested_file": filename,
+        }
 
     return text_splitter.split_documents(docs)
 
@@ -57,13 +56,17 @@ def _upload_to_vector_store(docs: list) -> bool:
         return False
 
     try:
+        # Reconnect before inserting — Milvus Lite's gRPC connection can go stale
+        # after ~10-15s of inactivity (e.g. during PDF loading), causing
+        # ConnectionNotExistException. Reconnecting is safe and idempotent.
+        from pymilvus import connections as _milvus_connections
         _uri = os.getenv("APP_MILVUS_URI") or os.getenv("MILVUS_URI", "http://localhost:19530")
+        _alias = getattr(flat_milvus_vector_store, "alias", "default")
         if _uri.startswith("http://"):
-            # Self-hosted Milvus — explicitly reconnect to ensure DB context is set
-            from pymilvus import connections as _milvus_connections
             _db_name = os.getenv("MILVUS_DB_NAME", "milvus_assignment_test")
-            _alias = getattr(flat_milvus_vector_store, "alias", "default")
             _milvus_connections.connect(alias=_alias, uri=_uri, db_name=_db_name)
+        else:
+            _milvus_connections.connect(alias=_alias, uri=_uri)
 
         flat_milvus_vector_store.add_documents(documents=docs)
         return True
