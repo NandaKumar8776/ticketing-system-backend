@@ -41,24 +41,23 @@ def get_ensemble_retriever_with_scores():
         weights=[0.3, 0.7]
     )
 
-# Create ensemble retriever with scores
-ensemble_retriever_with_scores = get_ensemble_retriever_with_scores()
-
-
-
 def extract_docs_and_scores(input_dict):
     """
     Extract documents and scores from ensemble retriever results.
-    
+
     This function processes the output from get_ensemble_retriever_with_scores()
     and separates documents from their relevance scores. Used by router_node to
     determine if a query should be routed to RAG based on score thresholds.
-    
+
+    The retriever is built lazily on each call so that an empty knowledge base
+    at startup doesn't crash the module import. If the KB is empty, returns
+    zero results and the router falls through to the generic LLM path.
+
     Args:
         input_dict (dict or str): Input containing the search query.
             If dict, expects 'input' key with the query string.
             If str, uses the string directly as the query.
-        
+
     Returns:
         dict: Dictionary containing:
             - documents (list): List of retrieved document objects
@@ -67,9 +66,15 @@ def extract_docs_and_scores(input_dict):
             - results_with_scores (list): Raw results from the retriever
     """
     query = input_dict if isinstance(input_dict, str) else input_dict.get("input", "")
-    
+
+    try:
+        retriever = get_ensemble_retriever_with_scores()
+    except RuntimeError:
+        # Knowledge base is empty — no documents ingested yet.
+        return {"documents": [], "scores": [], "context_str": "", "results_with_scores": []}
+
     # Get results with scores
-    results_with_scores = ensemble_retriever_with_scores.invoke(query)
+    results_with_scores = retriever.invoke(query)
     
     # Optional debug logging to inspect result shapes
     import os
