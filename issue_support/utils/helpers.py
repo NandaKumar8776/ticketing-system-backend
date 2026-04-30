@@ -1,13 +1,21 @@
 # LLM Setup
 
+import os
 from langchain_groq import ChatGroq
 
+# Models configurable via env vars — change without rebuilding the image.
+# timeout=30 prevents a hung Groq call from stalling the pipeline.
+# max_retries=2 handles transient 503s with built-in exponential backoff.
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model=os.getenv("LLM_MODEL", "llama-3.3-70b-versatile"),
+    timeout=30,
+    max_retries=2,
 )
 
 rag_llm = ChatGroq(
-    model="meta-llama/llama-4-scout-17b-16e-instruct"
+    model=os.getenv("RAG_LLM_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"),
+    timeout=30,
+    max_retries=2,
 )
 # Text file reading
 

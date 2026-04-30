@@ -3,7 +3,7 @@ Custom Ensemble Retriever that returns both documents and their fused scores.
 """
 
 from typing import List, Tuple, Any, Optional, Dict
-from langchain_classic.retrievers.ensemble import EnsembleRetriever
+from langchain.retrievers.ensemble import EnsembleRetriever
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.callbacks import CallbackManager
 from langchain_core.load import dumps

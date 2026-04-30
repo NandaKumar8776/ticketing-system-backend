@@ -46,14 +46,14 @@ def router_node(state: State):
     question = getattr(last_msg, 'content', last_msg)
 
     # Validating the input question
-    valiadted_question = RouterInput(user_question= question)
-    valiadted_question = valiadted_question.user_question
+    validated_question = RouterInput(user_question=question)
+    validated_question = validated_question.user_question
 
-    print(f"\nRouter Node processing the question [{valiadted_question}] for routing")
+    print(f"\nRouter Node processing the question [{validated_question}] for routing")
     
     # Invoking the RAG score function to find if context retrieved is relevant to the user's question
     try:
-        docs_and_scores = extract_docs_and_scores({"input": valiadted_question})
+        docs_and_scores = extract_docs_and_scores({"input": validated_question})
         print("\nRAG docs and scores: ", docs_and_scores)
         print("Docs and scores retrieved")
         #print("results_with_scores: ", docs_and_scores.get("results_with_scores", []))
@@ -100,8 +100,9 @@ def router_node(state: State):
 
     context = None  # Initialize context variable
     top_rag_score = None  # Track for metrics
-    if scores:
-        top_score = max(scores)
+    valid_scores = [s for s in scores if s is not None]
+    if valid_scores:
+        top_score = max(valid_scores)
         top_rag_score = top_score
         if top_score >= threshold:
             category = "RAG relevant Issue"
@@ -111,7 +112,7 @@ def router_node(state: State):
             rerank_top_n = int(os.getenv("RERANKER_TOP_N", "3"))
             try:
                 reranked = rerank_documents(
-                    query=valiadted_question,
+                    query=validated_question,
                     documents=filtered_documents,
                     top_n=rerank_top_n,
                 )
@@ -131,14 +132,13 @@ def router_node(state: State):
             category = "Not Related"
             print(f"Top RAG score {top_score} below threshold {threshold}, routing to Not Related.")
     else:
-        # No numeric scores available: fallback to presence of documents
         category = "Not Related"
-        print("No RAG scores available, routing to Not Related by default.")
+        print("No valid RAG scores available, routing to Not Related by default.")
 
     # Store context and category in separate state fields to avoid additional_kwargs
     return_this = {
         "current_question": [
-            valiadted_question  # Add the current question to state so that downstream nodes can access it
+            validated_question  # Add the current question to state so that downstream nodes can access it
         ],
         "category": category,  # Store category in state field
         "top_rag_score": top_rag_score,  # For metrics tracking

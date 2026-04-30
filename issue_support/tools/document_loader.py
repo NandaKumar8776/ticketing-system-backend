@@ -2,9 +2,8 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_community.document_loaders.parsers import TesseractBlobParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import os
-import re
 
-file_path = os.environ["FILE_DIR"]
+file_path = os.getenv("FILE_DIR", "")
 print(f"\n[Document Loader] Starting- checking if already initialized...")
 image_parser = TesseractBlobParser()
 
@@ -90,46 +89,73 @@ def _rebuild_bm25(docs: list):
         pass
 
 
-def initialize_retrievers():
-    """
-    Lazy initialization of retrievers. Called on startup via FastAPI lifespan.
-    Loads the default PDF from FILE_DIR if it exists, then indexes into Milvus + BM25.
-    If FILE_DIR is absent (e.g. cloud deploy where data is DVC-managed), the API
-    starts with an empty knowledge base — documents can be added via POST /ingest.
-    """
-    global vector_store_retriever, BM25_retriever, _initialized, _all_docs
+def _index_pdfs(pdf_paths: list):
+    """Chunk and index a list of PDF paths into Milvus + BM25."""
+    global vector_store_retriever, _all_docs
 
-    if _initialized:
+    for pdf_path in pdf_paths:
+        try:
+            docs = _load_and_chunk(pdf_path)
+            _all_docs.extend(docs)
+            print(f"\n[Document Loader] Loaded: {os.path.basename(pdf_path)} ({len(docs)} chunks)")
+        except Exception as e:
+            print(f"\n[Document Loader] ERROR loading {os.path.basename(pdf_path)}: {e}")
+
+    if not _all_docs:
         return
 
-    print("\n[Document Loader] Initializing retrievers...")
-
-    if not os.path.exists(file_path):
-        print(f"\n[Document Loader] WARNING: Default PDF not found at '{file_path}'.")
-        print("\n[Document Loader] Starting with empty knowledge base — use POST /ingest to load documents.")
-        _initialized = True
-        return
-
-    docs = _load_and_chunk(file_path)
-    _all_docs.extend(docs)
-
-    print("\n[Document Loader] Loaded the data")
-    print("\n[Document Loader] Chunking is done")
-
-    # Upload to Milvus
-    print("\n[Document Loader] Uploading the chunked docs to the vector store")
-    if _upload_to_vector_store(docs):
+    print(f"\n[Document Loader] Indexing {len(_all_docs)} total chunks into vector store...")
+    if _upload_to_vector_store(_all_docs):
         from memory.vector_store import flat_milvus_vector_store
         vector_store_retriever = flat_milvus_vector_store.as_retriever()
         print("\n[Document Loader] Vector Store is ready")
     else:
         vector_store_retriever = None
 
-    # Build BM25
-    print("\n[Document Loader] Uploading the chunked docs to the BM25 Keyword Search")
     _rebuild_bm25(_all_docs)
-    print("\n[Document Loader] BM25 Keyword Search is ready")
+    print("\n[Document Loader] BM25 is ready")
 
+
+def initialize_retrievers():
+    """
+    Called once at startup via FastAPI lifespan.
+
+    Priority order:
+      1. GCS (if GCS_BUCKET is set): downloads all PDFs from gs://<bucket>/documents/
+      2. FILE_DIR fallback: loads the single configured PDF (local dev)
+      3. Empty start: if neither yields documents, API starts with no knowledge base
+    """
+    global _initialized
+
+    if _initialized:
+        return
+
+    print("\n[Document Loader] Initializing retrievers...")
+
+    pdf_paths = []
+
+    # --- GCS: primary source for production ---
+    from utils.gcs_store import is_configured, download_all_documents
+    if is_configured():
+        upload_dir = os.getenv("UPLOAD_DIR", "/app/data/uploads")
+        print(f"\n[Document Loader] Pulling documents from GCS...")
+        pdf_paths = download_all_documents(upload_dir)
+        if pdf_paths:
+            print(f"\n[Document Loader] Found {len(pdf_paths)} document(s) in GCS")
+        else:
+            print("\n[Document Loader] GCS bucket is empty — no documents to load")
+
+    # --- FILE_DIR: fallback for local dev ---
+    if not pdf_paths and file_path and os.path.exists(file_path):
+        print(f"\n[Document Loader] Loading from FILE_DIR: {file_path}")
+        pdf_paths = [file_path]
+
+    if not pdf_paths:
+        print("\n[Document Loader] Starting with empty knowledge base — use POST /ingest to load documents.")
+        _initialized = True
+        return
+
+    _index_pdfs(pdf_paths)
     _initialized = True
 
 
@@ -137,14 +163,15 @@ def ingest_pdf(pdf_path: str) -> dict:
     """
     Ingest a new PDF into the retrieval system at runtime.
 
-    Chunks the PDF, appends to Milvus, and rebuilds BM25 over the full corpus.
-    Can be called while the server is running — no restart required.
+    Chunks the PDF, appends to Milvus, rebuilds BM25, then uploads the
+    original file to GCS so it persists across container restarts.
 
     Args:
         pdf_path: Absolute path to the PDF file on the container filesystem.
 
     Returns:
-        dict with keys: filename, num_chunks, success, error (if any)
+        dict with keys: filename, num_chunks, total_corpus_chunks, success,
+                        gcs_persisted, error (if any)
     """
     global vector_store_retriever, _all_docs
 
@@ -154,25 +181,50 @@ def ingest_pdf(pdf_path: str) -> dict:
     try:
         docs = _load_and_chunk(pdf_path)
     except Exception as e:
-        return {"filename": filename, "num_chunks": 0, "success": False, "error": str(e)}
+        return {"filename": filename, "num_chunks": 0, "success": False,
+                "gcs_persisted": False, "error": str(e)}
 
     num_chunks = len(docs)
     print(f"\n[Document Loader] {filename} → {num_chunks} chunks")
 
-    # Upload new chunks to Milvus
     if not _upload_to_vector_store(docs):
         return {"filename": filename, "num_chunks": num_chunks, "success": False,
-                "error": "Failed to upload to Milvus vector store"}
+                "gcs_persisted": False, "error": "Failed to upload to Milvus vector store"}
 
-    # Update the vector store retriever reference
     from memory.vector_store import flat_milvus_vector_store
     vector_store_retriever = flat_milvus_vector_store.as_retriever()
 
-    # Add to full corpus and rebuild BM25
     _all_docs.extend(docs)
     _rebuild_bm25(_all_docs)
+
+    # Persist to GCS so the document survives container restarts.
+    # If GCS is configured and the upload fails, treat the whole ingest as failed:
+    # the document is in Milvus for this session but will be lost on restart.
+    from utils.gcs_store import is_configured, upload_document
+    gcs_persisted = False
+    if is_configured():
+        gcs_persisted = upload_document(pdf_path)
+        if not gcs_persisted:
+            # Roll back: remove the chunks we just added so state stays consistent
+            _all_docs[-num_chunks:] = []
+            return {
+                "filename": filename,
+                "num_chunks": num_chunks,
+                "total_corpus_chunks": len(_all_docs),
+                "success": False,
+                "gcs_persisted": False,
+                "error": "GCS upload failed — document not persisted. Check GCS permissions and retry.",
+            }
+        print(f"\n[Document Loader] {filename} persisted to GCS")
 
     print(f"\n[Document Loader] Ingestion complete: {filename} ({num_chunks} chunks, "
           f"corpus now {len(_all_docs)} total chunks)")
 
-    return {"filename": filename, "num_chunks": num_chunks, "success": True, "error": None}
+    return {
+        "filename": filename,
+        "num_chunks": num_chunks,
+        "total_corpus_chunks": len(_all_docs),
+        "success": True,
+        "gcs_persisted": gcs_persisted,
+        "error": None,
+    }

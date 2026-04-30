@@ -18,7 +18,7 @@ parser = JsonOutputParser(pydantic_object= OutputCheck)
 from langchain_core.prompts import ChatPromptTemplate
 from utils.helpers import read_prompt
 
-rag_prompt = read_prompt(filepath= os.environ["RAG_PROMPT_DIR"])
+rag_prompt = read_prompt(filepath=os.environ.get("RAG_PROMPT_DIR", "prompts/rag_prompt.txt"))
 
 prompt = ChatPromptTemplate(
     messages= [
@@ -61,31 +61,21 @@ def get_ensemble_retriever():
         RuntimeError: If retrievers are not initialized.
     """
     from tools.document_loader import vector_store_retriever, BM25_retriever
-    from langchain_classic.retrievers.ensemble import EnsembleRetriever
-    
-    if vector_store_retriever is None or BM25_retriever is None:
-        raise RuntimeError("Retrievers could not be initialized. Check document loader configuration.")
-    
+    from langchain.retrievers.ensemble import EnsembleRetriever
+
+    if BM25_retriever is None:
+        raise RuntimeError("Knowledge base is empty. POST /ingest to load documents first.")
+
+    if vector_store_retriever is None:
+        return EnsembleRetriever(retrievers=[BM25_retriever], weights=[1.0])
+
     retriever = EnsembleRetriever(
-                retrievers=[BM25_retriever, vector_store_retriever],
-                weights=[0.3, 0.7]
-                )
+        retrievers=[BM25_retriever, vector_store_retriever],
+        weights=[0.3, 0.7],
+    )
     print("\n[rag_hybrid_retriever] Ensemble retriever created with BM25 and Vector Store retrievers.")
     return retriever
 
-
-# This is old hybrid search RAG pipeline without context
-# LEGACY - kept for reference (ensemble_retriever created lazily on invocation)
-def _get_legacy_pipeline():
-    _retriever = get_ensemble_retriever()
-    return (
-        {"context": RunnablePassthrough() | _retriever, "user_query": RunnablePassthrough()}
-        | prompt
-        | rag_llm
-        | parser
-    )
-
-hybrid_search_rag_pipeline = _get_legacy_pipeline
 
 # Context from the router node is passed directly to the RAG pipeline now
 hybrid_search_rag_pipeline_with_context = (

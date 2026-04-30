@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 URI = os.getenv("APP_MILVUS_URI") or os.getenv("MILVUS_URI", "http://localhost:19530")
 DB_NAME = os.getenv("MILVUS_DB_NAME", "milvus_assignment_test")
 ZILLIZ_API_KEY = os.getenv("ZILLIZ_API_KEY", "")
-COLLECTION_NAME = "HNSW_Index_PC_Troubleshooting_PDF"
+COLLECTION_NAME = os.getenv("MILVUS_COLLECTION_NAME", "IT_Support_Knowledge_Base")
 
 HNSW_INDEX_PARAMS = {
     "index_type": "HNSW",

@@ -4,7 +4,7 @@ FastAPI REST API for the Issue Support RAG System.
 Provides endpoints for:
 - /chat       : Conversational RAG-powered Q&A
 - /ingest     : Upload a PDF and add it to the retrieval knowledge base
-- /health     : Liveness probe for deployment readiness
+- /health     : Readiness probe — checks all backend dependencies
 - /metrics    : Aggregated pipeline performance metrics
 """
 
@@ -20,14 +20,51 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # --- Logging ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- Rate limiter ---
+limiter = Limiter(key_func=get_remote_address)
+
 
 # ──────────────────────────────────────────────
-# Lifespan: startup / shutdown
+# Session store helpers  (#2, #8)
+# ──────────────────────────────────────────────
+
+_MAX_SESSIONS   = int(os.getenv("MAX_SESSIONS", "1000"))
+_MAX_MSG_WINDOW = int(os.getenv("MAX_MSG_WINDOW", "20"))   # messages kept per session
+
+# {session_id: {"messages": [...], "last_access": float}}
+_sessions: dict[str, dict] = {}
+
+
+def _get_session(session_id: str) -> list:
+    """Return the message list for a session, creating it if needed."""
+    now = time.time()
+    if session_id not in _sessions:
+        # Evict the oldest session if we're at capacity
+        if len(_sessions) >= _MAX_SESSIONS:
+            oldest = min(_sessions, key=lambda sid: _sessions[sid]["last_access"])
+            del _sessions[oldest]
+        _sessions[session_id] = {"messages": [], "last_access": now}
+    _sessions[session_id]["last_access"] = now
+    return _sessions[session_id]["messages"]
+
+
+def _trim_session(messages: list) -> list:
+    """Keep only the last _MAX_MSG_WINDOW messages to stay within context limits."""
+    if len(messages) > _MAX_MSG_WINDOW:
+        del messages[: len(messages) - _MAX_MSG_WINDOW]
+    return messages
+
+
+# ──────────────────────────────────────────────
+# Lifespan: startup / shutdown  (#16)
 # ──────────────────────────────────────────────
 
 @asynccontextmanager
@@ -35,16 +72,27 @@ async def lifespan(app: FastAPI):
     """Initialize environment, vector store, and BM25 on startup."""
     logger.info("Starting Issue Support RAG API...")
 
-    # 1. Load environment variables & configure tracing
     import config.env_setup  # noqa: F401
 
-    # 2. Initialize document retrievers (Milvus + BM25)
     from tools.document_loader import initialize_retrievers
     initialize_retrievers()
 
+    # Pre-load the cross-encoder so the first /chat request doesn't pay model load time
+    from tools.reranker import get_reranker
+    get_reranker()
+
     logger.info("All retrievers initialized. API is ready.")
     yield
-    logger.info("Shutting down Issue Support RAG API.")
+
+    # Graceful shutdown: close persistent connections
+    logger.info("Shutting down Issue Support RAG API...")
+    try:
+        from utils.gcs_store import _gcs_client
+        if _gcs_client is not None:
+            _gcs_client.close()
+            logger.info("GCS client closed.")
+    except Exception as e:
+        logger.warning(f"Error closing GCS client: {e}")
 
 
 # ──────────────────────────────────────────────
@@ -61,9 +109,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS: restrict to known origins in production via ALLOWED_ORIGINS env var.  (#10)
+# Defaults to * so local dev and the demo frontend work without configuration.
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -78,8 +132,7 @@ _PUBLIC_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
 
 @app.middleware("http")
 async def api_key_middleware(request: Request, call_next):
-    """Require X-API-Key header when DEMO_API_KEY is set in the environment.
-    /health and docs endpoints are always public so Render health checks work."""
+    """Require X-API-Key header when DEMO_API_KEY is set."""
     if _DEMO_API_KEY and request.url.path not in _PUBLIC_PATHS:
         key = request.headers.get("X-API-Key", "")
         if key != _DEMO_API_KEY:
@@ -95,51 +148,48 @@ async def api_key_middleware(request: Request, call_next):
 # ──────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
-    """Incoming chat request."""
-    query: str = Field(..., min_length=1, max_length=2000, description="User question")
-    session_id: str = Field(
-        default_factory=lambda: str(uuid.uuid4()),
-        description="Session ID for conversation continuity",
-    )
+    query: str = Field(..., min_length=1, max_length=2000)
+    session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
 
 class SourceDocument(BaseModel):
-    """A retrieved source chunk returned with the answer."""
     content: str
     page: Optional[int] = None
     score: Optional[float] = None
 
 
 class ChatResponse(BaseModel):
-    """Structured response from the RAG pipeline."""
-    answer: str = Field(..., description="Generated answer")
-    session_id: str = Field(..., description="Session ID for this conversation")
-    route: str = Field(..., description="Pipeline route taken: 'RAG', 'LLM', or 'BLOCKED'")
-    top_rag_score: Optional[float] = Field(None, description="Highest retrieval relevance score")
-    num_sources: int = Field(0, description="Number of source documents used")
-    sources: list[SourceDocument] = Field(default_factory=list, description="Retrieved source chunks")
-    latency_ms: float = Field(..., description="End-to-end latency in milliseconds")
-    eval_score: Optional[float] = Field(None, description="LLM-as-judge evaluation score (0-10)")
-    guardrail_triggered: bool = Field(False, description="True if the request was blocked by guardrails")
-    guardrail_reason: Optional[str] = Field(None, description="Reason for guardrail block if triggered")
+    answer: str
+    session_id: str
+    route: str
+    top_rag_score: Optional[float] = None
+    num_sources: int = 0
+    sources: list[SourceDocument] = Field(default_factory=list)
+    latency_ms: float
+    eval_score: Optional[float] = None
+    guardrail_triggered: bool = False
+    guardrail_reason: Optional[str] = None
 
 
 class IngestResponse(BaseModel):
-    """Response from the /ingest endpoint."""
-    filename: str = Field(..., description="Name of the ingested file")
-    num_chunks: int = Field(..., description="Number of chunks indexed")
-    total_corpus_chunks: int = Field(..., description="Total chunks in the knowledge base after ingestion")
-    success: bool = Field(..., description="Whether ingestion succeeded")
-    message: str = Field(..., description="Human-readable status message")
+    filename: str
+    num_chunks: int
+    total_corpus_chunks: int
+    success: bool
+    gcs_persisted: bool = False
+    message: str
 
 
 class HealthResponse(BaseModel):
     status: str
     version: str
+    checks: dict
 
 
 class MetricsSummary(BaseModel):
     total_requests: int
+    successful_requests: int
+    failed_requests: int
     avg_latency_ms: float
     rag_route_count: int
     llm_route_count: int
@@ -148,10 +198,9 @@ class MetricsSummary(BaseModel):
 
 
 # ──────────────────────────────────────────────
-# In-memory session store & metrics counters
+# In-memory metrics store  (#15)
 # ──────────────────────────────────────────────
 
-_sessions: dict[str, list[dict]] = {}
 _metrics_store: list[dict] = []
 
 
@@ -160,7 +209,8 @@ _metrics_store: list[dict] = []
 # ──────────────────────────────────────────────
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+@limiter.limit(os.getenv("CHAT_RATE_LIMIT", "30/minute"))   # #11
+async def chat(request: Request, body: ChatRequest):
     """
     Process a user query through the agentic RAG pipeline.
 
@@ -168,27 +218,36 @@ async def chat(request: ChatRequest):
     1. Router scores the query against the knowledge base (hybrid BM25 + vector).
     2. If relevant → RAG node generates an answer with retrieved context.
        If not   → generic LLM generates a conversational response.
-    3. (Optional) Evaluator node scores the response quality on a rubric.
-    4. Metrics are logged per request.
+    3. Evaluator node scores the response quality.
+    4. Metrics are logged per request (including failures).
     """
     from graph.workflow import app as langgraph_app
 
     start = time.perf_counter()
-
-    # Retrieve or create session history
-    session_messages = _sessions.setdefault(request.session_id, [])
-    session_messages.append({"role": "user", "content": request.query})
+    session_messages = _get_session(body.session_id)
+    session_messages.append({"role": "user", "content": body.query})
+    _trim_session(session_messages)
 
     try:
-        # Invoke the LangGraph workflow
         result = langgraph_app.invoke({"messages": session_messages})
     except Exception as e:
+        latency_ms = round((time.perf_counter() - start) * 1000, 2)
+        # Log failed requests to metrics so error rates are visible  (#15)
+        _metrics_store.append({
+            "session_id": body.session_id,
+            "route": "ERROR",
+            "latency_ms": latency_ms,
+            "eval_score": None,
+            "top_rag_score": None,
+            "guardrail_triggered": False,
+            "error": str(e),
+            "timestamp": time.time(),
+        })
         logger.error(f"LangGraph invocation failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Pipeline error: {str(e)}")
 
     latency_ms = round((time.perf_counter() - start) * 1000, 2)
 
-    # Extract answer from result
     last_message = result.get("messages", [None])[-1]
     if last_message is None:
         raise HTTPException(status_code=500, detail="No response generated")
@@ -197,12 +256,10 @@ async def chat(request: ChatRequest):
     if not answer and isinstance(last_message, dict):
         answer = last_message.get("content", "")
 
-    # Save assistant response to session
     session_messages.append({"role": "assistant", "content": answer})
 
-    # Extract guardrail and routing metadata from state
     guardrail_triggered = result.get("guardrail_triggered", False)
-    guardrail_reason = result.get("guardrail_reason", None)
+    guardrail_reason    = result.get("guardrail_reason", None)
 
     if guardrail_triggered:
         route_label = "BLOCKED"
@@ -210,47 +267,41 @@ async def chat(request: ChatRequest):
         category = result.get("category", "Not Related")
         route_label = "RAG" if "rag" in category.lower() else "LLM"
 
-    # Extract source documents & scores if available
     context_docs = result.get("context", []) or []
     sources = []
-    top_rag_score = None
+    top_rag_score = result.get("top_rag_score")
 
     for doc in context_docs:
-        page = None
-        if hasattr(doc, "metadata"):
-            page = doc.metadata.get("page")
+        page  = doc.metadata.get("page") if hasattr(doc, "metadata") else None
         content = getattr(doc, "page_content", str(doc))
         score = doc.metadata.get("rerank_score") if hasattr(doc, "metadata") else None
         sources.append(SourceDocument(content=content[:500], page=page, score=score))
 
-    # Extract eval score if present (will be populated once evaluator is wired in)
     eval_score = result.get("eval_score")
 
-    # Log metrics
     metrics_record = {
-        "session_id": request.session_id,
+        "session_id": body.session_id,
         "route": route_label,
         "top_rag_score": top_rag_score,
         "num_sources": len(sources),
         "latency_ms": latency_ms,
         "eval_score": eval_score,
-        "query_length": len(request.query),
+        "query_length": len(body.query),
         "guardrail_triggered": guardrail_triggered,
         "guardrail_reason": guardrail_reason,
         "timestamp": time.time(),
     }
     _metrics_store.append(metrics_record)
 
-    # Also log to file-based metrics
     try:
         from utils.metrics import log_metrics
         log_metrics(metrics_record)
     except ImportError:
-        pass  # metrics module not yet created
+        pass
 
     return ChatResponse(
         answer=answer,
-        session_id=request.session_id,
+        session_id=body.session_id,
         route=route_label,
         top_rag_score=top_rag_score,
         num_sources=len(sources),
@@ -263,20 +314,12 @@ async def chat(request: ChatRequest):
 
 
 @app.post("/ingest", response_model=IngestResponse)
-async def ingest(file: UploadFile = File(...)):
-    """
-    Upload a PDF and add it to the retrieval knowledge base.
-
-    The file is chunked, embedded, and indexed into both Milvus (dense) and
-    BM25 (sparse) retrievers without restarting the server. All subsequent
-    /chat requests will include the new document in retrieval.
-
-    Accepts: multipart/form-data with a PDF file field named 'file'.
-    """
+@limiter.limit(os.getenv("INGEST_RATE_LIMIT", "10/minute"))  # #11
+async def ingest(request: Request, file: UploadFile = File(...)):
+    """Upload a PDF and add it to the retrieval knowledge base."""
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
-    # Save upload to a temp location inside the container data dir
     upload_dir = os.getenv("UPLOAD_DIR", "/app/data/uploads")
     os.makedirs(upload_dir, exist_ok=True)
     dest_path = os.path.join(upload_dir, file.filename)
@@ -287,26 +330,51 @@ async def ingest(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {e}")
 
-    from tools.document_loader import ingest_pdf, _all_docs
+    from tools.document_loader import ingest_pdf
     result = ingest_pdf(dest_path)
 
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["error"])
 
-    from tools.document_loader import _all_docs as corpus
     return IngestResponse(
         filename=result["filename"],
         num_chunks=result["num_chunks"],
-        total_corpus_chunks=len(corpus),
+        total_corpus_chunks=result["total_corpus_chunks"],
         success=True,
+        gcs_persisted=result.get("gcs_persisted", False),
         message=f"Successfully ingested '{result['filename']}' — {result['num_chunks']} chunks added.",
     )
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
-    """Liveness probe for container orchestration."""
-    return HealthResponse(status="healthy", version="1.0.0")
+    """Readiness probe — checks all backend dependencies."""  # #9
+    checks = {}
+
+    # Milvus
+    try:
+        from memory.vector_store import flat_milvus_vector_store
+        checks["milvus"] = "ok" if flat_milvus_vector_store is not None else "unavailable"
+    except Exception:
+        checks["milvus"] = "error"
+
+    # Retrievers
+    try:
+        from tools.document_loader import BM25_retriever, vector_store_retriever
+        checks["bm25"]         = "ok"    if BM25_retriever         is not None else "empty"
+        checks["vector_store"] = "ok"    if vector_store_retriever is not None else "empty"
+    except Exception:
+        checks["bm25"] = checks["vector_store"] = "error"
+
+    # GCS
+    from utils.gcs_store import is_configured
+    checks["gcs"] = "configured" if is_configured() else "not_configured"
+
+    # Overall status: degraded only if a hard dependency is in error
+    hard_fail = any(v == "error" for v in checks.values())
+    status = "degraded" if hard_fail else "healthy"
+
+    return HealthResponse(status=status, version="1.0.0", checks=checks)
 
 
 @app.get("/metrics", response_model=MetricsSummary)
@@ -314,38 +382,33 @@ async def metrics():
     """Return aggregated pipeline performance metrics."""
     if not _metrics_store:
         return MetricsSummary(
-            total_requests=0,
-            avg_latency_ms=0.0,
-            rag_route_count=0,
-            llm_route_count=0,
-            avg_rag_score=None,
-            avg_eval_score=None,
+            total_requests=0, successful_requests=0, failed_requests=0,
+            avg_latency_ms=0.0, rag_route_count=0, llm_route_count=0,
+            avg_rag_score=None, avg_eval_score=None,
         )
 
-    total = len(_metrics_store)
+    total     = len(_metrics_store)
+    failed    = sum(1 for m in _metrics_store if m.get("route") == "ERROR")
+    successful = total - failed
+
     avg_latency = sum(m["latency_ms"] for m in _metrics_store) / total
-    rag_count = sum(1 for m in _metrics_store if m["route"] == "RAG")
-    llm_count = total - rag_count
+    rag_count   = sum(1 for m in _metrics_store if m.get("route") == "RAG")
+    llm_count   = sum(1 for m in _metrics_store if m.get("route") == "LLM")
 
-    rag_scores = [m["top_rag_score"] for m in _metrics_store if m["top_rag_score"] is not None]
-    avg_rag = sum(rag_scores) / len(rag_scores) if rag_scores else None
-
-    eval_scores = [m["eval_score"] for m in _metrics_store if m["eval_score"] is not None]
-    avg_eval = sum(eval_scores) / len(eval_scores) if eval_scores else None
+    rag_scores  = [m["top_rag_score"] for m in _metrics_store if m.get("top_rag_score") is not None]
+    eval_scores = [m["eval_score"]     for m in _metrics_store if m.get("eval_score")     is not None]
 
     return MetricsSummary(
         total_requests=total,
+        successful_requests=successful,
+        failed_requests=failed,
         avg_latency_ms=round(avg_latency, 2),
         rag_route_count=rag_count,
         llm_route_count=llm_count,
-        avg_rag_score=round(avg_rag, 4) if avg_rag else None,
-        avg_eval_score=round(avg_eval, 2) if avg_eval else None,
+        avg_rag_score=round(sum(rag_scores)  / len(rag_scores),  4) if rag_scores  else None,
+        avg_eval_score=round(sum(eval_scores) / len(eval_scores), 2) if eval_scores else None,
     )
 
-
-# ──────────────────────────────────────────────
-# Run directly: uvicorn api:app --reload
-# ──────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn

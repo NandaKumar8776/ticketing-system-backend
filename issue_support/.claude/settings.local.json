@@ -28,7 +28,18 @@
       "Bash(conda run *)",
       "Bash(git rm *)",
       "Bash(git add *)",
-      "Bash(gcloud logging *)"
+      "Bash(gcloud logging *)",
+      "Read(//d/d/Work/Projects/Ticketing_System_Backend/.dvc/**)",
+      "Read(//d/d/Work/Projects/Ticketing_System_Backend/issue_support/data/**)",
+      "Read(//d/d/Work/Projects/Ticketing_System_Backend/issue_support/**)",
+      "Bash(gcloud projects *)",
+      "Bash(dvc remote *)",
+      "Bash(dvc push *)",
+      "Bash(gcloud storage *)",
+      "Bash(xargs wc *)",
+      "Bash(xargs grep *)",
+      "Bash(python -c \"from langchain.retrievers.ensemble import EnsembleRetriever; print\\('OK'\\)\")",
+      "Bash(python -c \"from langchain_community.retrievers import EnsembleRetriever; print\\('OK'\\)\")"
     ]
   }
 }

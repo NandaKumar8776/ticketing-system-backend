@@ -39,8 +39,12 @@ def evaluator_node(state: State):
         assistant_response = last_message.get("content", "")
 
     if not assistant_response:
-        logger.warning("No assistant response to evaluate. Skipping evaluation.")
-        return {"eval_score": None}
+        # An empty response means an upstream node failed silently — flag it.
+        logger.error(
+            "Evaluator received an empty assistant response. "
+            "This likely means a generation node failed without raising an exception."
+        )
+        return {"eval_score": None, "eval_skipped": True}
 
     try:
         result = evaluator_chain.invoke({

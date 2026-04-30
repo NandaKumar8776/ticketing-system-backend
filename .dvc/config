@@ -1,5 +1,7 @@
 [core]
-    remote = localstore
+    remote = gcs
     autostage = true
 ['remote "localstore"']
     url = C:/Users/Nkay/AppData/Local/Temp/dvc-cache
+['remote "gcs"']
+    url = gs://ticket-support-01-dvc/cache
