@@ -73,10 +73,14 @@ spec:
         stage('Push to Artifact Registry') {
             steps {
                 container('gcloud') {
-                    sh "gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet"
+                    // Write docker credentials to workspace so the docker container can read them
+                    sh """
+                        mkdir -p ${WORKSPACE}/.docker
+                        DOCKER_CONFIG=${WORKSPACE}/.docker gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+                    """
                 }
                 container('docker') {
-                    sh "docker push --all-tags ${IMAGE_BASE}"
+                    sh "DOCKER_CONFIG=${WORKSPACE}/.docker docker push --all-tags ${IMAGE_BASE}"
                 }
             }
         }
