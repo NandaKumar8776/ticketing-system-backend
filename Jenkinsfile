@@ -19,8 +19,8 @@ spec:
     command: ['sleep', 'infinity']
     resources:
       requests:
-        cpu: 500m
-        memory: 512Mi
+        cpu: 200m
+        memory: 256Mi
   - name: docker
     image: docker:24-dind
     securityContext:
@@ -30,8 +30,8 @@ spec:
       value: ""
     resources:
       requests:
-        cpu: 500m
-        memory: 512Mi
+        cpu: 200m
+        memory: 256Mi
 """
         }
     }
