@@ -128,21 +128,31 @@ Container cold start
         (knowledge base survives container restarts and new deployments)
 ```
 
-### CI/CD Pipeline
+### CI/CD Pipelines
+
+Two parallel CI/CD pipelines are configured — Cloud Build (GCP-native) and Jenkins (on GKE):
 
 ```
 git push (main)
     │
-    ▼
-Cloud Build trigger
+    ├──► GitHub Webhook → Jenkins (on GKE)
+    │         │
+    │         ├─ Checkout stage   — clone repo, capture SHORT_SHA
+    │         ├─ Build stage      — docker build in Docker-in-DinD pod container
+    │         ├─ Push stage       — gcloud token → docker login → push to Artifact Registry
+    │         └─ Deploy stage     — gcloud run deploy with VPC connector + env vars
     │
-    ├─► docker build issue_support/
-    ├─► docker push → Artifact Registry
-    └─► gcloud run deploy it-support-rag
-            ├─ VPC connector: milvus-connector → GKE
-            ├─ APP_MILVUS_URI: http://10.128.0.7:19530
-            └─ GCS_BUCKET: ticket-support-01-dvc
+    └──► Cloud Build Trigger (GCP)
+              │
+              ├─► docker build issue_support/
+              ├─► docker push → Artifact Registry
+              └─► gcloud run deploy it-support-rag
+                      ├─ VPC connector: milvus-connector → GKE
+                      ├─ APP_MILVUS_URI: http://10.128.0.7:19530
+                      └─ GCS_BUCKET: ticket-support-01-dvc
 ```
+
+**Jenkins** runs on the GKE cluster (dedicated `jenkins-pool` node) and uses the **Kubernetes plugin** to spin up ephemeral build agent pods per build — each pod contains a `gcloud` container and a `docker:dind` container. Authentication to GCP uses **Workload Identity** (no JSON key files).
 
 ---
 
@@ -192,7 +202,32 @@ curl -X POST https://it-support-rag-c72zrk22aa-uc.a.run.app/chat \
 
 ## GCP Deployment (Primary)
 
-The production deployment runs on **Google Cloud Run** connected via VPC to **self-hosted Milvus on GKE**, with images in **Artifact Registry**, secrets in **Secret Manager**, and documents in **GCS**.
+The production deployment runs on **Google Cloud Run** connected via VPC to **self-hosted Milvus on GKE**, with images in **Artifact Registry**, secrets in **Secret Manager**, and documents in **GCS**. Two CI/CD pipelines are configured: **Cloud Build** (GCP-native) and **Jenkins on GKE** (enterprise-grade).
+
+
+### Jenkins CI/CD
+
+Jenkins runs on the dedicated `jenkins-pool` GKE node and uses the **Kubernetes plugin** to spawn ephemeral build agent pods per build. Each agent pod contains:
+- `gcloud` container — authenticates via Workload Identity, pushes to Artifact Registry, deploys to Cloud Run
+- `docker:dind` container — builds the Docker image
+
+Authentication uses **Workload Identity** — the `jenkins-ksa` Kubernetes service account is bound to the `jenkins-sa` GCP service account. No JSON key files are stored anywhere.
+
+The full pipeline is defined in [`Jenkinsfile`](Jenkinsfile):
+
+| Stage | What it does |
+|---|---|
+| **Checkout** | Clones repo, captures `SHORT_SHA` for image tagging |
+| **Build Image** | `docker build` inside Docker-in-DinD container |
+| **Push to Artifact Registry** | Workload Identity token → `docker login` → `docker push` |
+| **Deploy to Cloud Run** | `gcloud run deploy` with VPC connector, env vars, secrets |
+
+### Manual Deploy (Cloud Build)
+
+```bash
+gcloud builds submit --project=<PROJECT_ID> \
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+```
 
 ### Environment Variables (Cloud Run)
 
@@ -312,7 +347,7 @@ python scripts/evaluate.py --output scripts/eval_results.json
 | MCP Server | Model Context Protocol (Claude Desktop integration) |
 | Containerization | Docker |
 | Cloud Deployment | GCP Cloud Run + GKE + Serverless VPC Connector + Artifact Registry + Secret Manager |
-| CI/CD | Cloud Build (GCP) |
+| CI/CD | Cloud Build (GCP-native) + Jenkins on GKE (Kubernetes plugin, Workload Identity) |
 | PDF Processing | PyMuPDF + Tesseract OCR |
 
 ---
@@ -322,6 +357,9 @@ python scripts/evaluate.py --output scripts/eval_results.json
 ```
 production-rag-langgraph/
 ├── README.md
+├── Jenkinsfile                         # Jenkins pipeline-as-code
+├── jenkins-values.yaml                 # Helm values for Jenkins on GKE
+├── milvus-values.yaml                  # Helm values for Milvus on GKE
 ├── cloudbuild.yaml                     # Cloud Build CI/CD pipeline
 ├── cloudrun-service.yaml               # Cloud Run service definition
 ├── gcp_setup.sh                        # One-time GCP setup script
