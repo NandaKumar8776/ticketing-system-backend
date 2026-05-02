@@ -49,6 +49,7 @@ spec:
             steps {
                 checkout scm
                 script {
+                    sh 'git config --global --add safe.directory "*"'
                     env.SHORT_SHA = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                     echo "Building commit: ${env.SHORT_SHA}"
                 }
